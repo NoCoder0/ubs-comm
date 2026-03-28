@@ -451,7 +451,9 @@ public:
         m_peer_info.peer_eid = remoteEid;
 
         *connEid = context->GetDevSrcEid();
-        if (localEid != remoteEid) {
+        
+        bool enable_share_jfr = context == nullptr ? true : context->EnableShareJfr();
+        if (enable_share_jfr || localEid != remoteEid) {
             dev_schedule_policy peerSchedulePolicy;
             if (RecvSocketData(m_fd, &peerSchedulePolicy, sizeof(dev_schedule_policy), CONTROL_PLANE_TIMEOUT_MS) !=
                 sizeof(dev_schedule_policy)) {
@@ -2784,7 +2786,8 @@ private:
         // 保存对端EID
         m_peer_info.peer_eid = remoteEid;
         connEid = context->GetDevSrcEid();
-        if (localEid != remoteEid) {
+        bool enable_share_jfr = context == nullptr ? true : context->EnableShareJfr();
+        if (enable_share_jfr || localEid != remoteEid) {
             dev_schedule_policy schedulePolicy = context->GetDevSchedulePolicy();
             if (SendSocketData(new_fd, &schedulePolicy, sizeof(dev_schedule_policy), CONTROL_PLANE_TIMEOUT_MS) !=
                 sizeof(dev_schedule_policy)) {
