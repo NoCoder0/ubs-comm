@@ -468,11 +468,11 @@ UResult UBJetty::ImportAndBindJetty(uint32_t token)
     }
 
     if (remoteJetty.tp_type == URMA_CTP) {
-        NN_LOG_ERROR("[PHZ]remoteJetty.tp_type == URMA_CTP");
+        NN_LOG_ERROR("[PHZ]remoteJetty.tp_type == URMA_CTP, URMA_CTP " << URMA_CTP);
     }
 
     if (remoteJetty.tp_type == URMA_RTP) {
-        NN_LOG_ERROR("[PHZ]remoteJetty.tp_type == URMA_RTP");
+        NN_LOG_ERROR("[PHZ]remoteJetty.tp_type == URMA_RTP, URMA_RTP " << URMA_RTP);
     }
 
     mTargetJetty = HcomUrma::ImportJetty(mUBContext->mUrmaContext, &remoteJetty, &tokenValue);
