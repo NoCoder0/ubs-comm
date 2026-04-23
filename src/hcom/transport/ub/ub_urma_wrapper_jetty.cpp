@@ -459,20 +459,20 @@ UResult UBJetty::ImportAndBindJetty(uint32_t token)
     remoteJetty.tp_type = (mJettyOptions.ubcMode == UBSHcomUbcMode::HighBandwidth) ? URMA_CTP : URMA_RTP;
     urma_token_t tokenValue{token};
     if (mJettyOptions.ubcMode == UBSHcomUbcMode::HighBandwidth) {
-        NN_LOG_INFO("[PHZ]ubcMode == UBSHcomUbcMode::HighBandwidth, tp_type: " << static_cast<int>(remoteJetty.tp_type));
+        NN_LOG_ERROR("[PHZ]ubcMode == UBSHcomUbcMode::HighBandwidth, tp_type: " << static_cast<int>(remoteJetty.tp_type));
     }
 
 
     if (mJettyOptions.ubcMode == UBSHcomUbcMode::LowLatency) {
-        NN_LOG_INFO("[PHZ]ubcMode == UBSHcomUbcMode::LowLatency, tp_type: " << static_cast<int>(remoteJetty.tp_type));
+        NN_LOG_ERROR("[PHZ]ubcMode == UBSHcomUbcMode::LowLatency, tp_type: " << static_cast<int>(remoteJetty.tp_type));
     }
 
     if (remoteJetty.tp_type == URMA_CTP) {
-        NN_LOG_INFO("[PHZ]remoteJetty.tp_type == URMA_CTP");
+        NN_LOG_ERROR("[PHZ]remoteJetty.tp_type == URMA_CTP");
     }
 
     if (remoteJetty.tp_type == URMA_RTP) {
-        NN_LOG_INFO("[PHZ]remoteJetty.tp_type == URMA_RTP");
+        NN_LOG_ERROR("[PHZ]remoteJetty.tp_type == URMA_RTP");
     }
 
     mTargetJetty = HcomUrma::ImportJetty(mUBContext->mUrmaContext, &remoteJetty, &tokenValue);
