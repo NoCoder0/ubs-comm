@@ -15,6 +15,7 @@
 #ifdef RDMA_BUILD_ENABLED
 #include <unistd.h>
 #include <algorithm>
+#include <cstdlib>
 
 #include "hcom_env.h"
 #include "rdma_mr_fixed_buf.h"
@@ -314,6 +315,12 @@ public:
         struct ibv_send_wr *badWR = nullptr;
         struct ibv_send_wr wrList[NET_SGE_MAX_IOV] = {};
         struct ibv_sge sgeStore[NET_SGE_MAX_IOV][NET_SGE_MAX_IOV] = {};
+        /* probe: HCOM_MSGE_PROBE=1 时把合并组改成"1 个本地 SGE(长度=组总长)"，
+           用于区分失败原因是"多 SGE"还是"远端连续写>1KB" */
+        static const bool kProbe = []() {
+            const char *v = std::getenv("HCOM_MSGE_PROBE");
+            return v != nullptr && *v != '\0' && *v != '0';
+        }();
         for (uint32_t g = 0; g < groupCount; ++g) {
             uint32_t begin = groupBegin[g];
             uint32_t num = groupLen[g];
@@ -323,15 +330,21 @@ public:
                                                                             << " num " << num);
                 return RR_PARAM_INVALID;
             }
+            uint64_t groupBytes = 0;
             for (uint32_t k = 0; k < num; ++k) {
+                groupBytes += iov[begin + k].size;
                 sgeStore[g][k].addr = iov[begin + k].lAddress;
                 sgeStore[g][k].length = iov[begin + k].size;
                 sgeStore[g][k].lkey = static_cast<uint32_t>(iov[begin + k].lKey);
             }
             auto &wr = wrList[g];
             wr.wr_id = context[g];
-            wr.num_sge = static_cast<int>(num);
             wr.sg_list = &sgeStore[g][0];
+            wr.num_sge = static_cast<int>(num);
+            if (kProbe && num > 1) {
+                sgeStore[g][0].length = static_cast<uint32_t>(groupBytes);
+                wr.num_sge = 1;
+            }
             wr.send_flags = IBV_SEND_SIGNALED;
             wr.opcode = isRead ? IBV_WR_RDMA_READ : IBV_WR_RDMA_WRITE;
             wr.imm_data = 0;
