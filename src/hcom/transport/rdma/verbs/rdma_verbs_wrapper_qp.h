@@ -266,28 +266,29 @@ public:
         }
 
         struct ibv_send_wr *badWR;
-        struct ibv_send_wr wrList[NET_SGE_MAX_IOV] = {};
-        struct ibv_sge list[NN_NO4] = {};
-        for (uint32_t i = 0; i < iovCount; i++) {
-            list[i].addr = iov[i].lAddress;
-            list[i].length = iov[i].size;
-            list[i].lkey = static_cast<uint32_t>(iov[i].lKey);
+        struct ibv_send_wr wr = {};
+        struct ibv_sge sgl[NN_NO4] = {};
 
-            auto &wr = wrList[i];
-            wr.wr_id = context[i];
-            wr.num_sge = 1;
-            wr.sg_list = &list[i];
-            wr.send_flags = IBV_SEND_SIGNALED;
-            wr.opcode = isRead ? IBV_WR_RDMA_READ : IBV_WR_RDMA_WRITE;
-            wr.imm_data = 0;
-            wr.next = (i + 1 == iovCount) ? nullptr : &wrList[i + 1];
-            wr.wr.rdma.remote_addr = iov[i].rAddress;
-            wr.wr.rdma.rkey = static_cast<uint32_t>(iov[i].rKey);
+        for (uint32_t i = 0; i < iovCount; i++) {
+            sgl[i].addr = iov[i].lAddress;
+            sgl[i].length = iov[i].size;
+            sgl[i].lkey = static_cast<uint32_t>(iov[i].lKey);
         }
 
-        auto result = ibv_post_send(mQP, wrList, &badWR);
+        wr.wr_id = context[0];
+        wr.num_sge = iovCount;
+        wr.sg_list = sgl;
+        wr.send_flags = IBV_SEND_SIGNALED;
+        wr.opcode = isRead ? IBV_WR_RDMA_READ : IBV_WR_RDMA_WRITE;
+        wr.imm_data = 0;
+        wr.next = nullptr;
+        wr.wr.rdma.remote_addr = iov[0].rAddress;
+        wr.wr.rdma.rkey = static_cast<uint32_t>(iov[0].rKey);
+
+        auto result = ibv_post_send(mQP, &wr, &badWR);
         if (NN_UNLIKELY(result != 0)) {
-            NN_LOG_ERROR("Failed to post oneSide request to qp " << mName << ", result " << result);
+            NN_LOG_ERROR("Failed to post oneSide SGL request to qp " << mName << ", result " << result
+                         << " iovCount=" << iovCount);
             return isRead ? RR_QP_POST_READ_FAILED : RR_QP_POST_WRITE_FAILED;
         }
 

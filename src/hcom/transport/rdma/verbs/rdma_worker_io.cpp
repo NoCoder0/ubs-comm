@@ -472,7 +472,7 @@ RResult RDMAWorker::PostOneSideSgl(RDMAQp *qp, const RDMASendSglRWRequest &req, 
             return RR_PARAM_INVALID;
         }
     }
-    sglCtx->refCount = 0;
+    sglCtx->refCount = iovCount - 1; // 预设为 N-1，因为只有最后一个 SGE 的 WR 会 signaled
     RDMASgeCtxInfo sgeInfo(sglCtx);
     uint64_t ctxArr[NET_SGE_MAX_IOV];
     RResult result = CreateOneSideCtx(sgeInfo, req.iov, req.iovCount, ctxArr, isRead);
