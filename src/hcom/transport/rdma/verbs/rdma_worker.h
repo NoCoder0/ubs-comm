@@ -159,6 +159,7 @@ public:
     RResult PostWrite(RDMAQp *qp, const RDMASendReadWriteRequest &req,
         RDMAOpContextInfo::OpType type = RDMAOpContextInfo::WRITE);
     RResult CreateOneSideCtx(RDMASgeCtxInfo &sgeInfo, UBSHcomNetTransSgeIov *iov, uint32_t iovCount,
+        uint32_t groupCount, const uint32_t *groupBegin, const uint32_t *groupLen,
         uint64_t (&ctxArr)[NET_SGE_MAX_IOV], bool isRead);
     RResult RePostReceive(RDMAOpContextInfo *ctx);
     RResult BatchRePostReceive(RDMAOpContextInfo *ctx);

@@ -473,18 +473,37 @@ RResult RDMAWorker::PostOneSideSgl(RDMAQp *qp, const RDMASendSglRWRequest &req, 
         }
     }
     sglCtx->refCount = 0;
+
+    /* 分组：同 rkey 且远端地址首尾连续的 iov 合成一个 WR(多 SGE)，减少 WR/完成数 */
+    uint32_t groupBegin[NET_SGE_MAX_IOV] = {};
+    uint32_t groupLen[NET_SGE_MAX_IOV] = {};
+    uint32_t groupCount = 0;
+    for (uint32_t i = 0; i < req.iovCount;) {
+        uint32_t begin = i;
+        uint64_t prevEnd = req.iov[i].rAddress + req.iov[i].size;
+        ++i;
+        while (i < req.iovCount && req.iov[i].rKey == req.iov[begin].rKey && req.iov[i].rAddress == prevEnd) {
+            prevEnd = req.iov[i].rAddress + req.iov[i].size;
+            ++i;
+        }
+        groupBegin[groupCount] = begin;
+        groupLen[groupCount] = i - begin;
+        ++groupCount;
+    }
+
     RDMASgeCtxInfo sgeInfo(sglCtx);
-    uint64_t ctxArr[NET_SGE_MAX_IOV];
-    RResult result = CreateOneSideCtx(sgeInfo, req.iov, req.iovCount, ctxArr, isRead);
+    uint64_t ctxArr[NET_SGE_MAX_IOV] = {};
+    RResult result =
+        CreateOneSideCtx(sgeInfo, req.iov, req.iovCount, groupCount, groupBegin, groupLen, ctxArr, isRead);
     if (result != RR_OK) {
         NN_LOG_ERROR("Failed to create one side ctx.");
         mSglCtxInfoPool.Return(sglCtx);
         return result;
     }
 
-    result = qp->PostOneSideSgl(req.iov, req.iovCount, ctxArr, isRead);
+    result = qp->PostOneSideSglGrouped(req.iov, groupCount, groupBegin, groupLen, ctxArr, isRead);
     if (NN_UNLIKELY(result != RR_OK)) {
-        for (int i = 0; i < req.iovCount; ++i) {
+        for (uint32_t i = 0; i < groupCount; ++i) {
             qp->ReturnOneSideWr();
             qp->RemoveOpCtxInfo(reinterpret_cast<RDMAOpContextInfo *>(ctxArr[i]));
             qp->DecreaseRef();
@@ -497,17 +516,32 @@ RResult RDMAWorker::PostOneSideSgl(RDMAQp *qp, const RDMASendSglRWRequest &req, 
 }
 
 RResult RDMAWorker::CreateOneSideCtx(RDMASgeCtxInfo &sgeInfo, UBSHcomNetTransSgeIov *iov, uint32_t iovCount,
+    uint32_t groupCount, const uint32_t *groupBegin, const uint32_t *groupLen,
     uint64_t (&ctxArr)[NET_SGE_MAX_IOV], bool isRead)
 {
-    if (iov == nullptr || iovCount == NN_NO0 || iovCount > NN_NO4 || ctxArr == nullptr) {
+    if (iov == nullptr || iovCount == NN_NO0 || iovCount > NN_NO4 || groupCount == 0 || groupCount > NN_NO4 ||
+        groupBegin == nullptr || groupLen == nullptr || ctxArr == nullptr) {
         NN_LOG_ERROR("Failed to create oneSide operation ctx because param invalid");
         return RR_PARAM_INVALID;
     }
-    for (uint32_t i = 0; i < iovCount; ++i) {
+    for (uint32_t g = 0; g < groupCount; ++g) {
+        uint32_t begin = groupBegin[g];
+        uint32_t num = groupLen[g];
+        if (NN_UNLIKELY(num == 0 || begin + num > iovCount)) {
+            NN_LOG_ERROR("Failed to create oneSide operation ctx because group invalid, group " << g);
+            for (uint32_t j = 0; j < g; ++j) {
+                sgeInfo.ctx->qp->ReturnOneSideWr();
+                sgeInfo.ctx->qp->RemoveOpCtxInfo(reinterpret_cast<RDMAOpContextInfo *>(ctxArr[j]));
+                sgeInfo.ctx->qp->DecreaseRef();
+                mOpCtxInfoPool.Return(reinterpret_cast<RDMAOpContextInfo *>(ctxArr[j]));
+            }
+            return RR_PARAM_INVALID;
+        }
+
         auto ctx = mOpCtxInfoPool.Get();
         if (NN_UNLIKELY(ctx == nullptr)) {
             NN_LOG_ERROR("Verbs failed to oneSide operation with RDMAWorker " << DetailName() << " as no ctx left");
-            for (uint32_t j = 0; j < i; ++j) {
+            for (uint32_t j = 0; j < g; ++j) {
                 sgeInfo.ctx->qp->ReturnOneSideWr();
                 sgeInfo.ctx->qp->RemoveOpCtxInfo(reinterpret_cast<RDMAOpContextInfo *>(ctxArr[j]));
                 sgeInfo.ctx->qp->DecreaseRef();
@@ -520,7 +554,7 @@ RResult RDMAWorker::CreateOneSideCtx(RDMASgeCtxInfo &sgeInfo, UBSHcomNetTransSge
             NN_LOG_ERROR("Verbs failed to oneSide operation with RDMAWorker " << DetailName() <<
                 " as no one side wr left");
             mOpCtxInfoPool.Return(ctx);
-            for (uint32_t j = 0; j < i; ++j) {
+            for (uint32_t j = 0; j < g; ++j) {
                 sgeInfo.ctx->qp->ReturnOneSideWr();
                 sgeInfo.ctx->qp->RemoveOpCtxInfo(reinterpret_cast<RDMAOpContextInfo *>(ctxArr[j]));
                 sgeInfo.ctx->qp->DecreaseRef();
@@ -528,21 +562,27 @@ RResult RDMAWorker::CreateOneSideCtx(RDMASgeCtxInfo &sgeInfo, UBSHcomNetTransSge
             }
             return RR_QP_ONE_SIDE_WR_FULL;
         }
+
         ctx->qp = sgeInfo.ctx->qp;
-        ctx->mrMemAddr = iov[i].lAddress;
-        ctx->dataSize = iov[i].size;
+        ctx->mrMemAddr = iov[begin].lAddress;
+        uint32_t groupBytes = 0;
+        for (uint32_t k = 0; k < num; ++k) {
+            groupBytes += static_cast<uint32_t>(iov[begin + k].size);
+        }
+        ctx->dataSize = groupBytes;
         ctx->qpNum = sgeInfo.ctx->qp->QpNum();
-        ctx->lKey = static_cast<uint32_t>(iov[i].lKey);
+        ctx->lKey = static_cast<uint32_t>(iov[begin].lKey);
         ctx->opType = isRead ? RDMAOpContextInfo::SGL_READ : RDMAOpContextInfo::SGL_WRITE;
         ctx->opResultType = RDMAOpContextInfo::SUCCESS;
         ctx->upCtxSize = static_cast<uint16_t>(sizeof(RDMASgeCtxInfo));
         auto upCtx = static_cast<RDMASgeCtxInfo *>((void *)&(ctx->upCtx));
         upCtx->ctx = sgeInfo.ctx;
-        upCtx->idx = i;
+        upCtx->idx = static_cast<uint16_t>(begin);
+        upCtx->count = static_cast<uint16_t>(num); /* 该 WR 覆盖 iov 数，完成时按此累加 refCount */
 
         sgeInfo.ctx->qp->IncreaseRef();
         sgeInfo.ctx->qp->AddOpCtxInfo(ctx);
-        ctxArr[i] = reinterpret_cast<uint64_t>(ctx);
+        ctxArr[g] = reinterpret_cast<uint64_t>(ctx);
     }
     return RR_OK;
 }

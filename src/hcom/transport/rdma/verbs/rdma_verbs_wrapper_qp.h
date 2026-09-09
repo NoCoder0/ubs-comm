@@ -294,6 +294,61 @@ public:
         return RR_OK;
     }
 
+    /* 多 SGE 版本：组内 iov（同 rkey 且远端地址连续）合并为一个 WR(多个本地 SGE)，
+       一个 WR 一个完成项，覆盖 groupLen[g] 个 iov。仅供 worker/OOB async 路径使用，
+       原 PostOneSideSgl 保持不变供 composed/sync 等路径使用。 */
+    inline RResult PostOneSideSglGrouped(UBSHcomNetTransSgeIov *iov, uint32_t groupCount,
+        const uint32_t *groupBegin, const uint32_t *groupLen, uint64_t (&context)[NET_SGE_MAX_IOV], bool isRead)
+    {
+        if (NN_UNLIKELY(mQP == nullptr)) {
+            return RR_QP_NOT_INITIALIZED;
+        }
+        if (NN_UNLIKELY(iov == nullptr || groupBegin == nullptr || groupLen == nullptr || groupCount == 0 ||
+            groupCount > NET_SGE_MAX_IOV)) {
+            NN_LOG_ERROR("Failed to post oneSide grouped request to qp " << mName
+                                                                         << " as param invalid, groupCount "
+                                                                         << groupCount);
+            return RR_PARAM_INVALID;
+        }
+
+        struct ibv_send_wr *badWR = nullptr;
+        struct ibv_send_wr wrList[NET_SGE_MAX_IOV] = {};
+        struct ibv_sge sgeStore[NET_SGE_MAX_IOV][NET_SGE_MAX_IOV] = {};
+        for (uint32_t g = 0; g < groupCount; ++g) {
+            uint32_t begin = groupBegin[g];
+            uint32_t num = groupLen[g];
+            if (NN_UNLIKELY(num == 0 || begin + num > NET_SGE_MAX_IOV)) {
+                NN_LOG_ERROR("Failed to post oneSide grouped request to qp " << mName << " as group " << g
+                                                                            << " invalid, begin " << begin
+                                                                            << " num " << num);
+                return RR_PARAM_INVALID;
+            }
+            for (uint32_t k = 0; k < num; ++k) {
+                sgeStore[g][k].addr = iov[begin + k].lAddress;
+                sgeStore[g][k].length = iov[begin + k].size;
+                sgeStore[g][k].lkey = static_cast<uint32_t>(iov[begin + k].lKey);
+            }
+            auto &wr = wrList[g];
+            wr.wr_id = context[g];
+            wr.num_sge = static_cast<int>(num);
+            wr.sg_list = &sgeStore[g][0];
+            wr.send_flags = IBV_SEND_SIGNALED;
+            wr.opcode = isRead ? IBV_WR_RDMA_READ : IBV_WR_RDMA_WRITE;
+            wr.imm_data = 0;
+            wr.next = (g + 1 == groupCount) ? nullptr : &wrList[g + 1];
+            /* 一个 WR 只能写一段连续远端：远端地址取组首，rkey 组内相同 */
+            wr.wr.rdma.remote_addr = iov[begin].rAddress;
+            wr.wr.rdma.rkey = static_cast<uint32_t>(iov[begin].rKey);
+        }
+
+        auto result = ibv_post_send(mQP, wrList, &badWR);
+        if (NN_UNLIKELY(result != 0)) {
+            NN_LOG_ERROR("Failed to post oneSide grouped request to qp " << mName << ", result " << result);
+            return isRead ? RR_QP_POST_READ_FAILED : RR_QP_POST_WRITE_FAILED;
+        }
+        return RR_OK;
+    }
+
     inline RResult PostRead(uintptr_t bufAddr, uint32_t localKey, uintptr_t remoteBufAddr, uint32_t remoteKey,
         uint32_t bufSize, uint64_t context)
     {

@@ -1529,7 +1529,9 @@ int NetDriverRDMAWithOob::OneSideDoneCB(RDMAOpContextInfo *ctx)
         auto sglCtx = sgeCtx->ctx;
         result = RDMAOpContextInfo::GetNResult(ctx->opResultType);
         sglCtx->result = sglCtx->result < result ? result : sglCtx->result;
-        auto refCount = __sync_add_and_fetch(&(sglCtx->refCount), 1);
+        /* 一个完成项可能覆盖多个 iov(多SGE合并)：按 count 累加 */
+        auto cover = sgeCtx->count == 0 ? 1U : static_cast<uint32_t>(sgeCtx->count);
+        auto refCount = __sync_add_and_fetch(&(sglCtx->refCount), cover);
         if (refCount != sglCtx->iovCount) {
             worker->ReturnOpContextInfo(ctx);
             return NN_OK;

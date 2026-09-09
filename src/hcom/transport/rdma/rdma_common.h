@@ -240,7 +240,8 @@ struct RDMASglContextInfo {
 
 struct RDMASgeCtxInfo {
     RDMASglContextInfo *ctx = nullptr;
-    uint16_t idx = 0;
+    uint16_t idx = 0;    /* 该 WR/组的起始 iov 下标 */
+    uint16_t count = 1;  /* 该 WR 覆盖的 iov 数(多SGE合并时>1，否则=1) */
 
     RDMASgeCtxInfo() = default;
     explicit RDMASgeCtxInfo(RDMASglContextInfo *sglCtx) : ctx(sglCtx) {}
