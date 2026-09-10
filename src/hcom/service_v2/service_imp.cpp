@@ -399,6 +399,7 @@ SerResult HcomServiceImp::CreateMultiRailDriver()
 
 SerResult HcomServiceImp::StartDriver()
 {
+    NN_LOG_WARN("NET_SGE_MAX_IOV=" << NET_SGE_MAX_IOV << " driverCount=" << mDriverPtrs.size());
     SerResult result = SER_OK;
     for (auto &driver : mDriverPtrs) {
         result = driver->Start();
