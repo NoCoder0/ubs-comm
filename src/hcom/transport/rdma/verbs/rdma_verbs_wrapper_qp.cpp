@@ -51,6 +51,8 @@ RResult RDMAQp::CreateIbvQp()
     initAttr.cap.max_send_sge = static_cast<uint32_t>(mRDMAContext->mMaxSge);
     initAttr.cap.max_inline_data = HcomEnv::InlineThreshold();
 
+    NN_LOG_WARN("QP create: max_send_sge=" << initAttr.cap.max_send_sge
+                << " NET_SGE_MAX_IOV=" << NET_SGE_MAX_IOV);
     auto tmpQP = HcomIbv::CreateQp(mRDMAContext->mProtectDomain, &initAttr);
     if (tmpQP == nullptr) {
         char buf[NET_STR_ERROR_BUF_SIZE] = {0};

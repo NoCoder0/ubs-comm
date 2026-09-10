@@ -483,7 +483,8 @@ RResult RDMAWorker::PostOneSideSgl(RDMAQp *qp, const RDMASendSglRWRequest &req, 
         uint32_t begin = i;
         uint64_t prevEnd = req.iov[i].rAddress + req.iov[i].size;
         ++i;
-        while (i < req.iovCount && req.iov[i].rKey == req.iov[begin].rKey && req.iov[i].rAddress == prevEnd) {
+        while (i < req.iovCount && req.iov[i].rKey == req.iov[begin].rKey &&
+               req.iov[i].rAddress == prevEnd && (i - begin) < NET_SGE_MAX_IOV) {
             prevEnd = req.iov[i].rAddress + req.iov[i].size;
             ++i;
         }
