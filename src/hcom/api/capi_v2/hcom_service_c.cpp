@@ -420,12 +420,12 @@ int ubs_hcom_channel_putv(ubs_hcom_channel channel, ubs_hcom_onesidesgl_request 
 {
     VALIDATE_CHANNEL(channel)
     if (req.iovCount == 0 || req.iovCount > (sizeof(req.iov) / sizeof(req.iov[0]))) {
-        NN_LOG_ERROR("Invalid param, iovCount must be in range [1, 4]");
+        NN_LOG_ERROR("Invalid param, iovCount must be in range [1, C_NET_SGE_MAX_IOV]");
         return SER_INVALID_PARAM;
     }
 
     auto innerChannel = reinterpret_cast<UBSHcomChannel *>(channel);
-    UBSHcomOneSideRequest onesideReq[4];
+    UBSHcomOneSideRequest onesideReq[C_NET_SGE_MAX_IOV];
     for (uint16_t i = 0; i < req.iovCount; i++) {
         auto ret = memcpy_s(&onesideReq[i], sizeof(onesideReq[i]), &req.iov[i], sizeof(req.iov[i]));
         if (ret != 0) {
@@ -462,12 +462,12 @@ int ubs_hcom_channel_getv(ubs_hcom_channel channel, ubs_hcom_onesidesgl_request 
 {
     VALIDATE_CHANNEL(channel)
     if (req.iovCount == 0 || req.iovCount > (sizeof(req.iov) / sizeof(req.iov[0]))) {
-        NN_LOG_ERROR("Invalid param, iovCount must be in range [1, 4]");
+        NN_LOG_ERROR("Invalid param, iovCount must be in range [1, C_NET_SGE_MAX_IOV]");
         return SER_INVALID_PARAM;
     }
 
     auto innerChannel = reinterpret_cast<UBSHcomChannel *>(channel);
-    UBSHcomOneSideRequest onesideReq[4];
+    UBSHcomOneSideRequest onesideReq[C_NET_SGE_MAX_IOV];
     for (uint16_t i = 0; i < req.iovCount; i++) {
         auto ret = memcpy_s(&onesideReq[i], sizeof(onesideReq[i]), &req.iov[i], sizeof(req.iov[i]));
         if (ret != 0) {

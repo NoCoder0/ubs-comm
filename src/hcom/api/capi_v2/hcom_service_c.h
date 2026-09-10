@@ -308,7 +308,7 @@ typedef struct {
 } ubs_hcom_oneside_request;
 
 typedef struct {
-    ubs_hcom_oneside_request iov[4];
+    ubs_hcom_oneside_request iov[C_NET_SGE_MAX_IOV];
     uint16_t iovCount;
 } ubs_hcom_onesidesgl_request;
 

@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-#define C_NET_SGE_MAX_IOV 4
+#define C_NET_SGE_MAX_IOV 16
 #define MAX_IP_LENGTH 16
 #define NET_C_FLAGS_BIT(i) (1UL << (i))
 
