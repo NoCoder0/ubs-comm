@@ -352,6 +352,21 @@ public:
                 }
             }
             fflush(stderr);
+            /* 顺带 dump 该 QP 的真实属性，和裸 verbs demo 对比 */
+            struct ibv_qp_attr qa {};
+            struct ibv_qp_init_attr qi {};
+            int qr = ibv_query_qp(mQP, &qa,
+                IBV_QP_STATE | IBV_QP_PATH_MTU | IBV_QP_ACCESS_FLAGS | IBV_QP_CAP, &qi);
+            if (qr == 0) {
+                fprintf(stderr,
+                    "[MSGE_DUMP]  qp dev=%s qp_num=%u state=%d mtu=%d access=0x%x max_send_sge=%u\n",
+                    ibv_get_device_name(mQP->context->device), mQP->qp_num, qa.qp_state, qa.path_mtu,
+                    qa.qp_access_flags, qi.cap.max_send_sge);
+            } else {
+                fprintf(stderr, "[MSGE_DUMP]  qp query failed %d, dev=%s qp_num=%u\n", qr,
+                    ibv_get_device_name(mQP->context->device), mQP->qp_num);
+            }
+            fflush(stderr);
         }
         for (uint32_t g = 0; g < groupCount; ++g) {
             uint32_t begin = groupBegin[g];
