@@ -390,6 +390,7 @@ SerResult HcomServiceImp::CreateMultiRailDriver()
         }
         driver->SetDeviceId(i);
         NN_LOG_INFO("create driver " << driver->Name());
+        NN_LOG_INFO("NET_SGE_MAX_IOV=" << NET_SGE_MAX_IOV << " (hardware max_sge will be checked at device init)");
         mDriverPtrs.emplace_back(driver);
         driver->IncreaseRef();
     }
