@@ -16,6 +16,7 @@
 #include <unistd.h>
 #include <algorithm>
 #include <cstdlib>
+#include <cstdio>
 #include <string>
 
 #include "hcom_env.h"
@@ -347,7 +348,8 @@ public:
                     static_cast<unsigned>(iv.rKey));
                 s += buf;
             }
-            NN_LOG_INFO(s);
+            fprintf(stderr, "[MSGE_DUMP] %s\n", s.c_str());
+            fflush(stderr);
         }
         for (uint32_t g = 0; g < groupCount; ++g) {
             uint32_t begin = groupBegin[g];
