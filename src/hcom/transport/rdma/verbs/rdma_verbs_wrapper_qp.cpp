@@ -177,8 +177,9 @@ RResult RDMAQp::ChangeToReceive(RDMAQpExchangeInfo &exInfo, struct ibv_qp_attr &
     static uint8_t rdAtomic = GetMaxRdAtomic();
 
     attr.qp_state = IBV_QPS_RTR;
-    // path_mtu should be smaller than the network mtu
-    attr.path_mtu = IBV_MTU_4096;
+    // path_mtu must not exceed the network mtu, otherwise >1 pkt messages (e.g. a merged SGE WR) get dropped
+    attr.path_mtu = (mRDMAContext->mPortAttr.active_mtu > IBV_MTU_256) ?
+        mRDMAContext->mPortAttr.active_mtu : IBV_MTU_256;
     attr.dest_qp_num = exInfo.qpn;
     attr.rq_psn = 0;
     attr.max_dest_rd_atomic = rdAtomic;
