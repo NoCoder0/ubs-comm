@@ -15,8 +15,6 @@
 #ifdef RDMA_BUILD_ENABLED
 #include <unistd.h>
 #include <algorithm>
-#include <cstdlib>
-#include <cstdio>
 #include <string>
 
 #include "hcom_env.h"
@@ -317,45 +315,6 @@ public:
         struct ibv_send_wr *badWR = nullptr;
         struct ibv_send_wr wrList[NET_SGE_MAX_IOV] = {};
         struct ibv_sge sgeStore[NET_SGE_MAX_IOV][NET_SGE_MAX_IOV] = {};
-        /* probe: HCOM_MSGE_PROBE=1 时把合并组改成"1 个本地 SGE(长度=组总长)"，
-           用于区分失败原因是"多 SGE"还是"远端连续写>1KB" */
-        static const bool kProbe = []() {
-            const char *v = std::getenv("HCOM_MSGE_PROBE");
-            return v != nullptr && *v != '\0' && *v != '0';
-        }();
-        /* dump: HCOM_MSGE_DUMP=1 时打印首个合并 WR 的真实字段，用于与裸 verbs demo 对比 */
-        static const bool kDump = []() {
-            const char *v = std::getenv("HCOM_MSGE_DUMP");
-            return v != nullptr && *v != '\0' && *v != '0';
-        }();
-        static int sDumpCount = 0;
-        uint32_t totalIovAll = 0;
-        for (uint32_t g = 0; g < groupCount; ++g) {
-            totalIovAll += groupLen[g];
-        }
-        /* 只在"确实发生合并"时打印(避免被 baseline 的非合并 dump 占掉)，最多 2 次 */
-        if (kDump && sDumpCount < 2 && totalIovAll > groupCount) {
-            ++sDumpCount;
-            fprintf(stderr, "[MSGE_DUMP] groupCount=%u totalIov=%u\n", groupCount, totalIovAll);
-            for (uint32_t g = 0; g < groupCount; ++g) {
-                fprintf(stderr,
-                    "[MSGE_DUMP]  wr%u num_sge=%u remote_addr=0x%lx rkey=0x%x\n",
-                    g, groupLen[g],
-                    static_cast<unsigned long>(iov[groupBegin[g]].rAddress),
-                    static_cast<unsigned>(iov[groupBegin[g]].rKey));
-                for (uint32_t k = 0; k < groupLen[g]; ++k) {
-                    const auto &iv = iov[groupBegin[g] + k];
-                    fprintf(stderr, "[MSGE_DUMP]    sge%u laddr=0x%lx len=%u lkey=0x%x raddr=0x%lx rkey=0x%x\n",
-                        k, static_cast<unsigned long>(iv.lAddress), static_cast<unsigned>(iv.size),
-                        static_cast<unsigned>(iv.lKey), static_cast<unsigned long>(iv.rAddress),
-                        static_cast<unsigned>(iv.rKey));
-                }
-            }
-            fflush(stderr);
-            /* 仅打印已有字段(不调用可能未链接的 ibv_* 查询符号) */
-            fprintf(stderr, "[MSGE_DUMP]  qp name=%s qp_num=%u\n", mName.c_str(), mQP->qp_num);
-            fflush(stderr);
-        }
         for (uint32_t g = 0; g < groupCount; ++g) {
             uint32_t begin = groupBegin[g];
             uint32_t num = groupLen[g];
@@ -365,9 +324,7 @@ public:
                                                                             << " num " << num);
                 return RR_PARAM_INVALID;
             }
-            uint64_t groupBytes = 0;
             for (uint32_t k = 0; k < num; ++k) {
-                groupBytes += iov[begin + k].size;
                 sgeStore[g][k].addr = iov[begin + k].lAddress;
                 sgeStore[g][k].length = iov[begin + k].size;
                 sgeStore[g][k].lkey = static_cast<uint32_t>(iov[begin + k].lKey);
@@ -376,10 +333,6 @@ public:
             wr.wr_id = context[g];
             wr.sg_list = &sgeStore[g][0];
             wr.num_sge = static_cast<int>(num);
-            if (kProbe && num > 1) {
-                sgeStore[g][0].length = static_cast<uint32_t>(groupBytes);
-                wr.num_sge = 1;
-            }
             wr.send_flags = IBV_SEND_SIGNALED;
             wr.opcode = isRead ? IBV_WR_RDMA_READ : IBV_WR_RDMA_WRITE;
             wr.imm_data = 0;

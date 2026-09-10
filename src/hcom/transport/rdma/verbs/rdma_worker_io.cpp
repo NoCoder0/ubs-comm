@@ -12,7 +12,6 @@
 #ifdef RDMA_BUILD_ENABLED
 #include <unistd.h>
 #include <utility>
-#include <cstdlib>
 
 #include "hcom_utils.h"
 #include "net_common.h"
@@ -475,36 +474,17 @@ RResult RDMAWorker::PostOneSideSgl(RDMAQp *qp, const RDMASendSglRWRequest &req, 
     }
     sglCtx->refCount = 0;
 
-    /* 分组：同 rkey 且远端地址首尾连续的 iov 合成一个 WR(多 SGE)，减少 WR/完成数。
-       默认关闭(等同旧行为，每 iov 一个 WR)：
-       HCOM_MSGE_MERGE=1 开启合并；HCOM_MSGE_MAX=N 限制单 WR 最多合并 N 个 iov(默认4)。 */
-    static const bool kMsgeMerge = []() {
-        const char *v = std::getenv("HCOM_MSGE_MERGE");
-        return v != nullptr && *v != '\0' && *v != '0';
-    }();
-    static const uint32_t kMsgeMax = []() {
-        const char *v = std::getenv("HCOM_MSGE_MAX");
-        if (v == nullptr || *v == '\0' || *v == '0') {
-            return static_cast<uint32_t>(NN_NO4);
-        }
-        uint32_t m = static_cast<uint32_t>(std::atoi(v));
-        return m == 0 ? static_cast<uint32_t>(NN_NO4) : m;
-    }();
+    /* 分组：同 rkey 且远端地址首尾连续的 iov 合成一个 WR(多 SGE)，减少 WR/完成数 */
     uint32_t groupBegin[NET_SGE_MAX_IOV] = {};
     uint32_t groupLen[NET_SGE_MAX_IOV] = {};
     uint32_t groupCount = 0;
     for (uint32_t i = 0; i < req.iovCount;) {
         uint32_t begin = i;
-        if (!kMsgeMerge) {
+        uint64_t prevEnd = req.iov[i].rAddress + req.iov[i].size;
+        ++i;
+        while (i < req.iovCount && req.iov[i].rKey == req.iov[begin].rKey && req.iov[i].rAddress == prevEnd) {
+            prevEnd = req.iov[i].rAddress + req.iov[i].size;
             ++i;
-        } else {
-            uint64_t prevEnd = req.iov[i].rAddress + req.iov[i].size;
-            ++i;
-            while (i < req.iovCount && (i - begin) < kMsgeMax && req.iov[i].rKey == req.iov[begin].rKey &&
-                req.iov[i].rAddress == prevEnd) {
-                prevEnd = req.iov[i].rAddress + req.iov[i].size;
-                ++i;
-            }
         }
         groupBegin[groupCount] = begin;
         groupLen[groupCount] = i - begin;
