@@ -328,11 +328,15 @@ public:
             const char *v = std::getenv("HCOM_MSGE_DUMP");
             return v != nullptr && *v != '\0' && *v != '0';
         }();
-        static bool sDumped = false;
-        if (kDump && !sDumped && groupCount >= 1) {
-            sDumped = true;
-            std::string s = "MSGE dump: groupCount=" + std::to_string(groupCount) + " iovCount=" +
-                std::to_string(groupLen[0]);
+        static int sDumpCount = 0;
+        if (kDump && sDumpCount < 2) {
+            ++sDumpCount;
+            uint32_t totalIov = 0;
+            for (uint32_t g = 0; g < groupCount; ++g) {
+                totalIov += groupLen[g];
+            }
+            std::string s = "MSGE dump: groupCount=" + std::to_string(groupCount) + " totalIov=" +
+                std::to_string(totalIov);
             s += " wr0: num_sge=" + std::to_string(groupLen[0]) + " remote_addr=0x";
             char buf[64] = {};
             snprintf(buf, sizeof(buf), "%lx", static_cast<unsigned long>(iov[groupBegin[0]].rAddress));
