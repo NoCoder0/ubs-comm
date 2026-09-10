@@ -529,7 +529,7 @@ RResult RDMAWorker::CreateOneSideCtx(RDMASgeCtxInfo &sgeInfo, UBSHcomNetTransSge
     uint32_t groupCount, const uint32_t *groupBegin, const uint32_t *groupLen,
     uint64_t (&ctxArr)[NET_SGE_MAX_IOV], bool isRead)
 {
-    if (iov == nullptr || iovCount == NN_NO0 || iovCount > NN_NO4 || groupCount == 0 || groupCount > NN_NO4 ||
+    if (iov == nullptr || iovCount == NN_NO0 || iovCount > NET_SGE_MAX_IOV || groupCount == 0 || groupCount > NET_SGE_MAX_IOV ||
         groupBegin == nullptr || groupLen == nullptr || ctxArr == nullptr) {
         NN_LOG_ERROR("Failed to create oneSide operation ctx because param invalid");
         return RR_PARAM_INVALID;

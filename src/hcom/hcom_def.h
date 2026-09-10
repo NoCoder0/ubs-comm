@@ -24,7 +24,7 @@ namespace hcom {
 
 constexpr const uint32_t NET_SGE_MAX_SIZE = 524288000;
 constexpr const uint32_t NET_STR_ERROR_BUF_SIZE = 128;
-constexpr const uint32_t NET_SGE_MAX_IOV = 4;
+constexpr const uint32_t NET_SGE_MAX_IOV = 16;
 
 // enum num should less than 128
 enum NET_FLAGS {

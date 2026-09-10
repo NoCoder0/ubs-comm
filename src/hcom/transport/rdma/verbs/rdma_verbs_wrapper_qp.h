@@ -194,7 +194,7 @@ public:
         }
 
         struct ibv_send_wr *badWR;
-        struct ibv_sge list[NN_NO4] = {};
+        struct ibv_sge list[NET_SGE_MAX_IOV] = {};
         for (uint32_t i = 0; i < iovCount; i++) {
             list[i].addr = iov[i].address;
             list[i].length = iov[i].size;
@@ -230,7 +230,7 @@ public:
         }
 
         struct ibv_send_wr *badWR;
-        struct ibv_sge list[NN_NO4] = {};
+        struct ibv_sge list[NET_SGE_MAX_IOV] = {};
         for (uint32_t i = 0; i < iovCount; i++) {
             list[i].addr = iov[i].lAddress;
             list[i].length = iov[i].size;
@@ -268,7 +268,7 @@ public:
 
         struct ibv_send_wr *badWR;
         struct ibv_send_wr wrList[NET_SGE_MAX_IOV] = {};
-        struct ibv_sge list[NN_NO4] = {};
+        struct ibv_sge list[NET_SGE_MAX_IOV] = {};
         for (uint32_t i = 0; i < iovCount; i++) {
             list[i].addr = iov[i].lAddress;
             list[i].length = iov[i].size;

@@ -556,11 +556,11 @@ public:
     RResult CreateOneSideCtx(RDMASgeCtxInfo &sgeInfo, UBSHcomNetTransSgeIov *iov, uint32_t iovCount,
         uint64_t (&ctxArr)[NET_SGE_MAX_IOV], bool isRead)
     {
-        if (iov == nullptr || iovCount == NN_NO0 || iovCount > NN_NO4 || ctxArr == nullptr) {
+        if (iov == nullptr || iovCount == NN_NO0 || iovCount > NET_SGE_MAX_IOV || ctxArr == nullptr) {
             NN_LOG_ERROR("Failed to create oneSide operation ctx because param invalid");
             return RR_PARAM_INVALID;
         }
-        static thread_local RDMAOpContextInfo ctx[NN_NO4] = {};
+        static thread_local RDMAOpContextInfo ctx[NET_SGE_MAX_IOV] = {};
         for (uint32_t i = 0; i < iovCount; ++i) {
             ctx[i].qp = mQP;
             ctx[i].mrMemAddr = iov[i].lAddress;
