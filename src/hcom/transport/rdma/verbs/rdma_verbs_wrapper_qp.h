@@ -329,30 +329,28 @@ public:
             return v != nullptr && *v != '\0' && *v != '0';
         }();
         static int sDumpCount = 0;
-        if (kDump && sDumpCount < 2) {
+        uint32_t totalIovAll = 0;
+        for (uint32_t g = 0; g < groupCount; ++g) {
+            totalIovAll += groupLen[g];
+        }
+        /* 只在"确实发生合并"时打印(避免被 baseline 的非合并 dump 占掉)，最多 2 次 */
+        if (kDump && sDumpCount < 2 && totalIovAll > groupCount) {
             ++sDumpCount;
-            uint32_t totalIov = 0;
+            fprintf(stderr, "[MSGE_DUMP] groupCount=%u totalIov=%u\n", groupCount, totalIovAll);
             for (uint32_t g = 0; g < groupCount; ++g) {
-                totalIov += groupLen[g];
+                fprintf(stderr,
+                    "[MSGE_DUMP]  wr%u num_sge=%u remote_addr=0x%lx rkey=0x%x\n",
+                    g, groupLen[g],
+                    static_cast<unsigned long>(iov[groupBegin[g]].rAddress),
+                    static_cast<unsigned>(iov[groupBegin[g]].rKey));
+                for (uint32_t k = 0; k < groupLen[g]; ++k) {
+                    const auto &iv = iov[groupBegin[g] + k];
+                    fprintf(stderr, "[MSGE_DUMP]    sge%u laddr=0x%lx len=%u lkey=0x%x raddr=0x%lx rkey=0x%x\n",
+                        k, static_cast<unsigned long>(iv.lAddress), static_cast<unsigned>(iv.size),
+                        static_cast<unsigned>(iv.lKey), static_cast<unsigned long>(iv.rAddress),
+                        static_cast<unsigned>(iv.rKey));
+                }
             }
-            std::string s = "MSGE dump: groupCount=" + std::to_string(groupCount) + " totalIov=" +
-                std::to_string(totalIov);
-            s += " wr0: num_sge=" + std::to_string(groupLen[0]) + " remote_addr=0x";
-            char buf[64] = {};
-            snprintf(buf, sizeof(buf), "%lx", static_cast<unsigned long>(iov[groupBegin[0]].rAddress));
-            s += buf;
-            s += " rkey=0x";
-            snprintf(buf, sizeof(buf), "%x", static_cast<unsigned>(iov[groupBegin[0]].rKey));
-            s += buf;
-            for (uint32_t k = 0; k < groupLen[0]; ++k) {
-                const auto &iv = iov[groupBegin[0] + k];
-                snprintf(buf, sizeof(buf), "; sge%d[laddr=0x%lx len=%u lkey=0x%x raddr=0x%lx rkey=0x%x]",
-                    k, static_cast<unsigned long>(iv.lAddress), static_cast<unsigned>(iv.size),
-                    static_cast<unsigned>(iv.lKey), static_cast<unsigned long>(iv.rAddress),
-                    static_cast<unsigned>(iv.rKey));
-                s += buf;
-            }
-            fprintf(stderr, "[MSGE_DUMP] %s\n", s.c_str());
             fflush(stderr);
         }
         for (uint32_t g = 0; g < groupCount; ++g) {
