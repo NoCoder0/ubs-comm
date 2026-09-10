@@ -342,6 +342,13 @@ public:
             wr.wr.rdma.rkey = static_cast<uint32_t>(iov[begin].rKey);
         }
 
+        NN_LOG_WARN("[SGE] PostOneSideSglGrouped groupCount=" << groupCount
+            << " sge_per_group=["
+            << (groupCount > 0 ? std::to_string(wrList[0].num_sge) : "")
+            << (groupCount > 1 ? "," + std::to_string(wrList[1].num_sge) : "")
+            << (groupCount > 2 ? "," + std::to_string(wrList[2].num_sge) : "")
+            << (groupCount > 3 ? "," + std::to_string(wrList[3].num_sge) : "")
+            << "]");
         auto result = ibv_post_send(mQP, wrList, &badWR);
         if (NN_UNLIKELY(result != 0)) {
             NN_LOG_ERROR("Failed to post oneSide grouped request to qp " << mName << ", result " << result);
