@@ -342,7 +342,6 @@ public:
             wr.wr.rdma.rkey = static_cast<uint32_t>(iov[begin].rKey);
         }
 
-        NN_LOG_WARN("[SGE] PostOneSideSglGrouped groupCount=" << groupCount
             << " sge_per_group=["
             << (groupCount > 0 ? std::to_string(wrList[0].num_sge) : "")
             << (groupCount > 1 ? "," + std::to_string(wrList[1].num_sge) : "")

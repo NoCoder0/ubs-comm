@@ -390,7 +390,6 @@ SerResult HcomServiceImp::CreateMultiRailDriver()
         }
         driver->SetDeviceId(i);
         NN_LOG_INFO("create driver " << driver->Name());
-        NN_LOG_WARN("NET_SGE_MAX_IOV=" << NET_SGE_MAX_IOV << " (hardware max_sge will be checked at device init)");
         mDriverPtrs.emplace_back(driver);
         driver->IncreaseRef();
     }
@@ -399,7 +398,6 @@ SerResult HcomServiceImp::CreateMultiRailDriver()
 
 SerResult HcomServiceImp::StartDriver()
 {
-    NN_LOG_WARN("NET_SGE_MAX_IOV=" << NET_SGE_MAX_IOV << " driverCount=" << mDriverPtrs.size());
     SerResult result = SER_OK;
     for (auto &driver : mDriverPtrs) {
         result = driver->Start();
