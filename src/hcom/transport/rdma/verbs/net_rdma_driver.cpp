@@ -275,7 +275,9 @@ NResult NetDriverRDMA::CreateOpCtxMemPool()
 NResult NetDriverRDMA::CreateSglCtxMemPool()
 {
     NetMemPoolFixedOptions options = {};
-    options.superBlkSizeMB = NN_NO1;
+    /* sgl ctx 里含 iov[NET_SGE_MAX_IOV] 数组，块尺寸随 NET_SGE_MAX_IOV 增长；
+       池校验要求 superBlkSizeMB >= minBlkSize * tcExpandBlkCnt * 16，1MB 在 iov=30 时不够 */
+    options.superBlkSizeMB = NN_NO4;
     options.minBlkSize = NN_NextPower2(sizeof(RDMASglContextInfo));
     options.tcExpandBlkCnt = NN_NO64;
     mSglCtxMemPool = new (std::nothrow) NetMemPoolFixed(mName, options);
