@@ -16,6 +16,7 @@
 #include <unistd.h>
 #include <algorithm>
 #include <cstdlib>
+#include <string>
 
 #include "hcom_env.h"
 #include "rdma_mr_fixed_buf.h"
@@ -321,6 +322,33 @@ public:
             const char *v = std::getenv("HCOM_MSGE_PROBE");
             return v != nullptr && *v != '\0' && *v != '0';
         }();
+        /* dump: HCOM_MSGE_DUMP=1 时打印首个合并 WR 的真实字段，用于与裸 verbs demo 对比 */
+        static const bool kDump = []() {
+            const char *v = std::getenv("HCOM_MSGE_DUMP");
+            return v != nullptr && *v != '\0' && *v != '0';
+        }();
+        static bool sDumped = false;
+        if (kDump && !sDumped && groupCount >= 1) {
+            sDumped = true;
+            std::string s = "MSGE dump: groupCount=" + std::to_string(groupCount) + " iovCount=" +
+                std::to_string(groupLen[0]);
+            s += " wr0: num_sge=" + std::to_string(groupLen[0]) + " remote_addr=0x";
+            char buf[64] = {};
+            snprintf(buf, sizeof(buf), "%lx", static_cast<unsigned long>(iov[groupBegin[0]].rAddress));
+            s += buf;
+            s += " rkey=0x";
+            snprintf(buf, sizeof(buf), "%x", static_cast<unsigned>(iov[groupBegin[0]].rKey));
+            s += buf;
+            for (uint32_t k = 0; k < groupLen[0]; ++k) {
+                const auto &iv = iov[groupBegin[0] + k];
+                snprintf(buf, sizeof(buf), "; sge%d[laddr=0x%lx len=%u lkey=0x%x raddr=0x%lx rkey=0x%x]",
+                    k, static_cast<unsigned long>(iv.lAddress), static_cast<unsigned>(iv.size),
+                    static_cast<unsigned>(iv.lKey), static_cast<unsigned long>(iv.rAddress),
+                    static_cast<unsigned>(iv.rKey));
+                s += buf;
+            }
+            NN_LOG_INFO(s);
+        }
         for (uint32_t g = 0; g < groupCount; ++g) {
             uint32_t begin = groupBegin[g];
             uint32_t num = groupLen[g];
