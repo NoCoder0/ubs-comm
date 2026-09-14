@@ -89,6 +89,8 @@ public:
     int32_t Get(const UBSHcomOneSideRequest &req, const Callback *done = nullptr) override;
     int32_t PutV(const UBSHcomOneSideSglRequest &req, const Callback *done = nullptr) override;
     int32_t GetV(const UBSHcomOneSideSglRequest &req, const Callback *done = nullptr) override;
+    int32_t PutVOnRail(const UBSHcomOneSideSglRequest &req, uint16_t railIdx, const Callback *done = nullptr) override;
+    int32_t GetVOnRail(const UBSHcomOneSideSglRequest &req, uint16_t railIdx, const Callback *done = nullptr) override;
     int32_t SendFds(int fds[], uint32_t len) override;
     int32_t ReceiveFds(int fds[], uint32_t len, int32_t timeoutSec) override;
     int32_t Recv(const UBSHcomServiceContext &context, uintptr_t address, uint32_t size,
@@ -234,10 +236,21 @@ private:
     SerResult OneSideSyncWithWorkerPoll(const UBSHcomOneSideRequest &request, bool isWrite);
     SerResult OneSideAsyncWithWorkerPoll(const UBSHcomOneSideRequest &request, const Callback *done, bool isWrite);
 
-    SerResult OneSideSglInner(const UBSHcomOneSideSglRequest &request, const Callback *done, bool isWrite);
-    SerResult OneSideSglSyncWithSelfPoll(const UBSHcomOneSideSglRequest &request, bool isWrite);
-    SerResult OneSideSglSyncWithWorkerPoll(const UBSHcomOneSideSglRequest &request, bool isWrite);
-    SerResult OneSideSglAsyncWithWorkerPoll(const UBSHcomOneSideSglRequest &req, const Callback *done, bool isWrite);
+    SerResult OneSideSglInner(const UBSHcomOneSideSglRequest &request, const Callback *done, bool isWrite,
+        uint16_t railIdx = SGL_AUTO_RAIL);
+    SerResult OneSideSglSyncWithSelfPoll(const UBSHcomOneSideSglRequest &request, bool isWrite,
+        uint16_t railIdx = SGL_AUTO_RAIL);
+    SerResult OneSideSglSyncWithWorkerPoll(const UBSHcomOneSideSglRequest &request, bool isWrite,
+        uint16_t railIdx = SGL_AUTO_RAIL);
+    SerResult OneSideSglAsyncWithWorkerPoll(const UBSHcomOneSideSglRequest &req, const Callback *done, bool isWrite,
+        uint16_t railIdx = SGL_AUTO_RAIL);
+    int32_t SendSgl(const UBSHcomOneSideSglRequest &req, const Callback *done, bool isWrite, uint16_t railIdx);
+    /* railIdx 超出实际 driver 数时回落到 rail 0（SGL_AUTO_RAIL 也走这里） */
+    inline uint16_t ResolveRailIdx(uint16_t railIdx) const
+    {
+        return (railIdx < mDriverNum) ? railIdx : 0;
+    }
+    static constexpr uint16_t SGL_AUTO_RAIL = UINT16_MAX; /* 未指定 rail：按库内 MultiRail 策略自动扇出 */
     SerResult PrepareCallback(HcomServiceSelfSyncParam& syncParam, TimerCtx &syncContext);
     inline void CalculateOffsetAndSize(const UBSHcomOneSideRequest &request, UBSHcomNetEndpoint *ep,
         uint32_t &remain, uint32_t &offset, uint32_t &size)

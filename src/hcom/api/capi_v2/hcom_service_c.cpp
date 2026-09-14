@@ -501,6 +501,92 @@ int ubs_hcom_channel_getv(ubs_hcom_channel channel, ubs_hcom_onesidesgl_request 
     return SER_OK;
 }
 
+int ubs_hcom_channel_putv_rail(ubs_hcom_channel channel, ubs_hcom_onesidesgl_request req, uint16_t railIdx,
+    ubs_hcom_channel_callback *cb)
+{
+    VALIDATE_CHANNEL(channel)
+    if (req.iovCount == 0 || req.iovCount > (sizeof(req.iov) / sizeof(req.iov[0]))) {
+        NN_LOG_ERROR("Invalid param, iovCount must be in range [1, C_NET_SGE_MAX_IOV]");
+        return SER_INVALID_PARAM;
+    }
+
+    auto innerChannel = reinterpret_cast<UBSHcomChannel *>(channel);
+    UBSHcomOneSideRequest onesideReq[C_NET_SGE_MAX_IOV];
+    for (uint16_t i = 0; i < req.iovCount; i++) {
+        auto ret = memcpy_s(&onesideReq[i], sizeof(onesideReq[i]), &req.iov[i], sizeof(req.iov[i]));
+        if (ret != 0) {
+            NN_LOG_ERROR("memcpy req iov failed");
+            return SER_ERROR;
+        }
+    }
+    UBSHcomOneSideSglRequest oneSideSglReq {};
+    oneSideSglReq.iov = onesideReq;
+    oneSideSglReq.iovCount = req.iovCount;
+    if (cb == nullptr) {
+        return innerChannel->PutVOnRail(oneSideSglReq, railIdx, nullptr);
+    }
+
+    ubs_hcom_channel_cb_func cbFunc = cb->cb;
+    void *arg = cb->arg;
+    Callback *newCallback = UBSHcomNewCallback(
+        [cbFunc, arg]
+        (UBSHcomServiceContext &context) { cbFunc(arg, reinterpret_cast<ubs_hcom_service_context>(&context)); },
+        std::placeholders::_1);
+    if (NN_UNLIKELY(newCallback == nullptr)) {
+        NN_LOG_ERROR("ubs_hcom_channel_putv_rail malloc callback failed");
+        return SER_NEW_OBJECT_FAILED;
+    }
+    auto result = innerChannel->PutVOnRail(oneSideSglReq, railIdx, newCallback);
+    if (NN_UNLIKELY(result != SER_OK)) {
+        return result;
+    }
+
+    return SER_OK;
+}
+
+int ubs_hcom_channel_getv_rail(ubs_hcom_channel channel, ubs_hcom_onesidesgl_request req, uint16_t railIdx,
+    ubs_hcom_channel_callback *cb)
+{
+    VALIDATE_CHANNEL(channel)
+    if (req.iovCount == 0 || req.iovCount > (sizeof(req.iov) / sizeof(req.iov[0]))) {
+        NN_LOG_ERROR("Invalid param, iovCount must be in range [1, C_NET_SGE_MAX_IOV]");
+        return SER_INVALID_PARAM;
+    }
+
+    auto innerChannel = reinterpret_cast<UBSHcomChannel *>(channel);
+    UBSHcomOneSideRequest onesideReq[C_NET_SGE_MAX_IOV];
+    for (uint16_t i = 0; i < req.iovCount; i++) {
+        auto ret = memcpy_s(&onesideReq[i], sizeof(onesideReq[i]), &req.iov[i], sizeof(req.iov[i]));
+        if (ret != 0) {
+            NN_LOG_ERROR("memcpy req iov failed");
+            return SER_ERROR;
+        }
+    }
+    UBSHcomOneSideSglRequest oneSideSglReq {};
+    oneSideSglReq.iov = onesideReq;
+    oneSideSglReq.iovCount = req.iovCount;
+    if (cb == nullptr) {
+        return innerChannel->GetVOnRail(oneSideSglReq, railIdx, nullptr);
+    }
+
+    ubs_hcom_channel_cb_func cbFunc = cb->cb;
+    void *arg = cb->arg;
+    Callback *newCallback = UBSHcomNewCallback(
+        [cbFunc, arg]
+        (UBSHcomServiceContext &context) { cbFunc(arg, reinterpret_cast<ubs_hcom_service_context>(&context)); },
+        std::placeholders::_1);
+    if (NN_UNLIKELY(newCallback == nullptr)) {
+        NN_LOG_ERROR("ubs_hcom_channel_getv_rail malloc callback failed");
+        return SER_NEW_OBJECT_FAILED;
+    }
+    auto result = innerChannel->GetVOnRail(oneSideSglReq, railIdx, newCallback);
+    if (NN_UNLIKELY(result != SER_OK)) {
+        return result;
+    }
+
+    return SER_OK;
+}
+
 int ubs_hcom_channel_recv(ubs_hcom_channel channel, ubs_hcom_service_context ctx, uintptr_t address, uint32_t size,
     ubs_hcom_channel_callback *cb)
 {

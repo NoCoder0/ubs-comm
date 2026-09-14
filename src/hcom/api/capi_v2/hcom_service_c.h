@@ -418,6 +418,10 @@ int ubs_hcom_channel_put(ubs_hcom_channel channel, ubs_hcom_oneside_request req,
 int ubs_hcom_channel_get(ubs_hcom_channel channel, ubs_hcom_oneside_request req, ubs_hcom_channel_callback *cb);
 int ubs_hcom_channel_putv(ubs_hcom_channel channel, ubs_hcom_onesidesgl_request req, ubs_hcom_channel_callback *cb);
 int ubs_hcom_channel_getv(ubs_hcom_channel channel, ubs_hcom_onesidesgl_request req, ubs_hcom_channel_callback *cb);
+int ubs_hcom_channel_putv_rail(ubs_hcom_channel channel, ubs_hcom_onesidesgl_request req, uint16_t railIdx,
+    ubs_hcom_channel_callback *cb);
+int ubs_hcom_channel_getv_rail(ubs_hcom_channel channel, ubs_hcom_onesidesgl_request req, uint16_t railIdx,
+    ubs_hcom_channel_callback *cb);
 int ubs_hcom_channel_recv(ubs_hcom_channel channel, ubs_hcom_service_context ctx, uintptr_t address, uint32_t size,
     ubs_hcom_channel_callback *cb);
 int ubs_hcom_channel_send_fds(ubs_hcom_channel channel, int fds[], uint32_t len);

@@ -2104,22 +2104,25 @@ int32_t HcomChannelImp::Recv(const UBSHcomServiceContext &context, uintptr_t add
     return SER_OK;
 }
 
-SerResult HcomChannelImp::OneSideSglSyncWithSelfPoll(const UBSHcomOneSideSglRequest &request, bool isWrite)
+SerResult HcomChannelImp::OneSideSglSyncWithSelfPoll(const UBSHcomOneSideSglRequest &request, bool isWrite,
+    uint16_t railIdx)
 {
     UBSHcomNetEndpoint *ep = nullptr;
     uint32_t index = 0;
-    auto result = AcquireSelfPollEp(ep, index, mOptions.oneSideTimeout);
+    auto result = AcquireSelfPollEp(ep, index, mOptions.oneSideTimeout, ResolveRailIdx(railIdx));
     if (NN_UNLIKELY(result != SER_OK)) {
         NN_LOG_ERROR("Channel sync oneside sgl acquire ep failed " << result << " channel id " << mOptions.id);
         return result;
     }
 
+    const uint8_t devIdx = ep->GetDevIndex();
+    const uint8_t peerDevIdx = ep->GetPeerDevIndex();
     UBSHcomNetTransSgeIov iovArray[NET_SGE_MAX_IOV];
     for (uint32_t i = 0; i < request.iovCount; i++) {
         iovArray[i] = UBSHcomNetTransSgeIov(request.iov[i].lAddress, request.iov[i].rAddress,
-            request.iov[i].lKey.keys[0], request.iov[i].rKey.keys[0], request.iov[i].size);
-        iovArray[i].srcSeg = reinterpret_cast<void *>(request.iov[i].lKey.tokens[0]);
-        iovArray[i].dstSeg = reinterpret_cast<void *>(request.iov[i].rKey.tokens[0]);
+            request.iov[i].lKey.keys[devIdx], request.iov[i].rKey.keys[peerDevIdx], request.iov[i].size);
+        iovArray[i].srcSeg = reinterpret_cast<void *>(request.iov[i].lKey.tokens[devIdx]);
+        iovArray[i].dstSeg = reinterpret_cast<void *>(request.iov[i].rKey.tokens[devIdx]);
     }
     UBSHcomNetTransSglRequest sglReq(iovArray, request.iovCount, 0);
     if (isWrite) {
@@ -2144,12 +2147,13 @@ SerResult HcomChannelImp::OneSideSglSyncWithSelfPoll(const UBSHcomOneSideSglRequ
     return result;
 }
 
-SerResult HcomChannelImp::OneSideSglSyncWithWorkerPoll(const UBSHcomOneSideSglRequest &request, bool isWrite)
+SerResult HcomChannelImp::OneSideSglSyncWithWorkerPoll(const UBSHcomOneSideSglRequest &request, bool isWrite,
+    uint16_t railIdx)
 {
     UBSHcomNetEndpoint *ep = nullptr;
-    auto result = NextWorkerPollEp(ep, 0);
+    auto result = NextWorkerPollEp(ep, ResolveRailIdx(railIdx));
     if (NN_UNLIKELY(result != SER_OK)) {
-        NN_LOG_ERROR("Get Ep failed " << result);
+        NN_LOG_ERROR("Get Ep failed " << result << " in rail " << ResolveRailIdx(railIdx));
         return result;
     }
     
@@ -2175,12 +2179,14 @@ SerResult HcomChannelImp::OneSideSglSyncWithWorkerPoll(const UBSHcomOneSideSglRe
         return result;
     }
 
+    const uint8_t devIdx = ep->GetDevIndex();
+    const uint8_t peerDevIdx = ep->GetPeerDevIndex();
     UBSHcomNetTransSgeIov iovArray[NET_SGE_MAX_IOV];
     for (uint32_t i = 0; i < request.iovCount; i++) {
         iovArray[i] = UBSHcomNetTransSgeIov(request.iov[i].lAddress, request.iov[i].rAddress,
-            request.iov[i].lKey.keys[0], request.iov[i].rKey.keys[0], request.iov[i].size);
-        iovArray[i].srcSeg = reinterpret_cast<void *>(request.iov[i].lKey.tokens[0]);
-        iovArray[i].dstSeg = reinterpret_cast<void *>(request.iov[i].rKey.tokens[0]);
+            request.iov[i].lKey.keys[devIdx], request.iov[i].rKey.keys[peerDevIdx], request.iov[i].size);
+        iovArray[i].srcSeg = reinterpret_cast<void *>(request.iov[i].lKey.tokens[devIdx]);
+        iovArray[i].dstSeg = reinterpret_cast<void *>(request.iov[i].rKey.tokens[devIdx]);
     }
     UBSHcomNetTransSglRequest sglReq(iovArray, request.iovCount, sizeof(SerTransContext));
     SetServiceTransCtx(sglReq.upCtxData, readContext.seqNo);
@@ -2201,64 +2207,103 @@ SerResult HcomChannelImp::OneSideSglSyncWithWorkerPoll(const UBSHcomOneSideSglRe
 }
 
 SerResult HcomChannelImp::OneSideSglAsyncWithWorkerPoll(const UBSHcomOneSideSglRequest &request, const Callback *done,
-    bool isWrite)
+    bool isWrite, uint16_t railIdx)
 {
-    UBSHcomNetEndpoint *ep = nullptr;
-    auto result = NextWorkerPollEp(ep, 0);
-    if (NN_UNLIKELY(result != SER_OK)) {
-        NN_LOG_ERROR("Get Ep failed " << result);
-        return result;
-    }
-
-    TimerCtx readContext {};
-    result = PrepareTimerContext(done, mOptions.oneSideTimeout, readContext);
-    if (result != SER_OK) {
-        NN_LOG_ERROR("PrepareTimerContext failed " << result);
-        DestroyCallback(done);
-        return result;
-    }
-
-    UBSHcomNetTransSgeIov iovArray[NET_SGE_MAX_IOV];
+    /* railIdx 指定时：整批 SGL 只走指定的那条 rail（上层可据此把不同数据区间钉到不同网卡）；
+       未指定(SGL_AUTO_RAIL)时：按 MultiRail 策略把本批 iov 连续切分到多条 rail，
+       每个 rail 用自己的设备 key 提交一个独立的 SGL 请求。 */
+    uint64_t totalSize = 0;
     for (uint32_t i = 0; i < request.iovCount; i++) {
-        iovArray[i] = UBSHcomNetTransSgeIov(request.iov[i].lAddress, request.iov[i].rAddress,
-            request.iov[i].lKey.keys[0], request.iov[i].rKey.keys[0], request.iov[i].size);
-        iovArray[i].srcSeg = reinterpret_cast<void *>(request.iov[i].lKey.tokens[0]);
-        iovArray[i].dstSeg = reinterpret_cast<void *>(request.iov[i].rKey.tokens[0]);
+        totalSize += request.iov[i].size;
     }
-    UBSHcomNetTransSglRequest sglReq(iovArray, request.iovCount, sizeof(SerTransContext));
-    SetServiceTransCtx(sglReq.upCtxData, readContext.seqNo);
-    if (isWrite) {
-        result = ep->PostWrite(sglReq);
-    } else {
-        result = ep->PostRead(sglReq);
+    uint16_t railNum = NN_NO1;
+    if (railIdx == SGL_AUTO_RAIL && mOptions.enableMultiRail && mDriverNum > 1 &&
+        totalSize > mOptions.multiRailThresh) {
+        railNum = mDriverNum;
     }
-    if (NN_UNLIKELY(result != SER_OK)) {
-        NN_LOG_ERROR("Channel async oneside sgl failed " << result << " ep id " << ep->Id());
-        DestroyTimerContext(readContext);
-        return result;
+    if (railNum > request.iovCount) {
+        railNum = request.iovCount;
     }
-    
+
+    Callback *cb = GetAsyncCB(railNum, done);
+    if (NN_UNLIKELY(railNum > NN_NO1 && cb == nullptr)) {
+        NN_LOG_ERROR("Get OneSideSglCB failed ");
+        return SER_NEW_OBJECT_FAILED;
+    }
+
+    for (uint16_t rail = 0; rail < railNum; ++rail) {
+        UBSHcomNetEndpoint *ep = nullptr;
+        const uint16_t railSel = (railIdx == SGL_AUTO_RAIL) ? rail : ResolveRailIdx(railIdx);
+        auto result = NextWorkerPollEp(ep, railSel);
+        if (NN_UNLIKELY(result != SER_OK)) {
+            NN_LOG_ERROR("Get Ep failed " << result << " in rail " << railSel);
+            ProcessRemainCallback(cb, railNum - rail);
+            return result;
+        }
+
+        TimerCtx readContext {};
+        result = PrepareTimerContext(cb, mOptions.oneSideTimeout, readContext);
+        if (result != SER_OK) {
+            NN_LOG_ERROR("PrepareTimerContext failed " << result << " in rail " << railSel);
+            ProcessRemainCallback(cb, railNum - rail);
+            return result;
+        }
+
+        const uint8_t devIdx = ep->GetDevIndex();
+        const uint8_t peerDevIdx = ep->GetPeerDevIndex();
+        /* 连续区间切分：rail r 负责 iov 的 [begin, end) 段，便于每张卡拿到连续地址 */
+        const uint32_t base = request.iovCount / railNum;
+        const uint32_t rem = request.iovCount % railNum;
+        const uint32_t begin = rail * base + (rail < rem ? rail : rem);
+        const uint32_t end = begin + base + (rail < rem ? 1 : 0);
+        UBSHcomNetTransSgeIov iovArray[NET_SGE_MAX_IOV];
+        uint16_t iovCnt = 0;
+        for (uint32_t i = begin; i < end; ++i) {
+            iovArray[iovCnt] = UBSHcomNetTransSgeIov(request.iov[i].lAddress, request.iov[i].rAddress,
+                request.iov[i].lKey.keys[devIdx], request.iov[i].rKey.keys[peerDevIdx], request.iov[i].size);
+            iovArray[iovCnt].srcSeg = reinterpret_cast<void *>(request.iov[i].lKey.tokens[devIdx]);
+            iovArray[iovCnt].dstSeg = reinterpret_cast<void *>(request.iov[i].rKey.tokens[devIdx]);
+            iovCnt++;
+        }
+        UBSHcomNetTransSglRequest sglReq(iovArray, iovCnt, sizeof(SerTransContext));
+        SetServiceTransCtx(sglReq.upCtxData, readContext.seqNo);
+        if (isWrite) {
+            result = ep->PostWrite(sglReq);
+        } else {
+            result = ep->PostRead(sglReq);
+        }
+        if (NN_UNLIKELY(result != SER_OK)) {
+            NN_LOG_ERROR("Channel async oneside sgl failed " << result << " ep id " << ep->Id() << " in rail "
+                                                             << railSel);
+            DestroyTimerContext(readContext);
+            return result;
+        }
+    }
+
+    NN_LOG_DEBUG("Multirail sgl: auto(" << (railIdx == SGL_AUTO_RAIL) << "), rail num: " << railNum << ", iov count: "
+                                        << request.iovCount);
     return SER_OK;
 }
 
-SerResult HcomChannelImp::OneSideSglInner(const UBSHcomOneSideSglRequest &request, const Callback *done, bool isWrite)
+SerResult HcomChannelImp::OneSideSglInner(const UBSHcomOneSideSglRequest &request, const Callback *done, bool isWrite,
+    uint16_t railIdx)
 {
-    if (mOptions.enableMultiRail) {
-        NN_LOG_DEBUG("Multirail not supported in oneside sgl, using single rail.");
-    }
-
     if (mOptions.selfPoll) {
         if (done == nullptr) {
-            return OneSideSglSyncWithSelfPoll(request, isWrite);
+            return OneSideSglSyncWithSelfPoll(request, isWrite, railIdx);
         } else {
             NN_LOG_ERROR("Failed to invoke async one side sgl op with self poll, not supported");
             return SER_INVALID_PARAM;
         }
     } else {
         if (done == nullptr) {
-            return OneSideSglSyncWithWorkerPoll(request, isWrite);
+            /* worker poll 的同步 SGL 未做多 rail 扇出，固定走 rail 0（指定 rail 时按指定值走） */
+            if (mOptions.enableMultiRail && railIdx == SGL_AUTO_RAIL) {
+                NN_LOG_DEBUG("Multirail not supported in sync oneside sgl, using single rail.");
+            }
+            return OneSideSglSyncWithWorkerPoll(request, isWrite, railIdx);
         } else {
-            return OneSideSglAsyncWithWorkerPoll(request, done, isWrite);
+            return OneSideSglAsyncWithWorkerPoll(request, done, isWrite, railIdx);
         }
     }
     return SER_INVALID_PARAM;
@@ -2268,35 +2313,33 @@ int32_t HcomChannelImp::PutV(const UBSHcomOneSideSglRequest &req, const Callback
 {
     NN_LOG_DEBUG("[Request Send] ------ API = HcomChannelImp::PutV" << ", channel id = " << mOptions.id <<
                  ", status = " << UBSHcomRequestStatusToString(UBSHcomNetRequestStatus::CALLED));
-    VALIDATE_PARAM(OneSideSglRequest, req);
-    SerResult ret = SER_OK;
-    uint64_t timestamp = mOptions.oneSideTimeout < 0 ? UINT64_MAX : mOptions.oneSideTimeout + NetMonotonic::TimeSec();
-    do {
-        ret = FlowControl(req.Size(), mOptions.oneSideTimeout, timestamp);
-        if (NN_UNLIKELY(ret != SER_OK)) {
-            return ret;
-        }
-
-        NetTrace::TraceBegin(CHANNEL_WRITE);
-        ret = OneSideSglInner(req, done, true);
-        NetTrace::TraceEnd(CHANNEL_WRITE, ret);
-        if (NN_LIKELY(ret == SER_OK)) {
-            return SER_OK;
-        } else if (ret == SER_NEW_OBJECT_FAILED) { // do later::add retry result code
-            usleep(100UL);
-            continue;
-        } else {
-            break;
-        }
-    } while (NetMonotonic::TimeSec() < timestamp);
-
-    NN_LOG_ERROR("Failed to writev " << ret);
-    return ret;
+    return SendSgl(req, done, true, SGL_AUTO_RAIL);
 }
+
 int32_t HcomChannelImp::GetV(const UBSHcomOneSideSglRequest &req, const Callback *done)
 {
     NN_LOG_DEBUG("[Request Send] ------ API = HcomChannelImp::GetV" << ", channel id = " << mOptions.id <<
                  ", status = " << UBSHcomRequestStatusToString(UBSHcomNetRequestStatus::CALLED));
+    return SendSgl(req, done, false, SGL_AUTO_RAIL);
+}
+
+int32_t HcomChannelImp::PutVOnRail(const UBSHcomOneSideSglRequest &req, uint16_t railIdx, const Callback *done)
+{
+    NN_LOG_DEBUG("[Request Send] ------ API = HcomChannelImp::PutVOnRail" << ", channel id = " << mOptions.id <<
+                 ", rail: " << railIdx);
+    return SendSgl(req, done, true, railIdx);
+}
+
+int32_t HcomChannelImp::GetVOnRail(const UBSHcomOneSideSglRequest &req, uint16_t railIdx, const Callback *done)
+{
+    NN_LOG_DEBUG("[Request Send] ------ API = HcomChannelImp::GetVOnRail" << ", channel id = " << mOptions.id <<
+                 ", rail: " << railIdx);
+    return SendSgl(req, done, false, railIdx);
+}
+
+int32_t HcomChannelImp::SendSgl(const UBSHcomOneSideSglRequest &req, const Callback *done, bool isWrite,
+    uint16_t railIdx)
+{
     VALIDATE_PARAM(OneSideSglRequest, req);
     SerResult ret = SER_OK;
     uint64_t timestamp = mOptions.oneSideTimeout < 0 ? UINT64_MAX : mOptions.oneSideTimeout + NetMonotonic::TimeSec();
@@ -2306,9 +2349,15 @@ int32_t HcomChannelImp::GetV(const UBSHcomOneSideSglRequest &req, const Callback
             return ret;
         }
 
-        NetTrace::TraceBegin(CHANNEL_READ);
-        ret = OneSideSglInner(req, done, false);
-        NetTrace::TraceEnd(CHANNEL_READ, ret);
+        if (isWrite) {
+            NetTrace::TraceBegin(CHANNEL_WRITE);
+            ret = OneSideSglInner(req, done, true, railIdx);
+            NetTrace::TraceEnd(CHANNEL_WRITE, ret);
+        } else {
+            NetTrace::TraceBegin(CHANNEL_READ);
+            ret = OneSideSglInner(req, done, false, railIdx);
+            NetTrace::TraceEnd(CHANNEL_READ, ret);
+        }
         if (NN_LIKELY(ret == SER_OK)) {
             return SER_OK;
         } else if (ret == SER_NEW_OBJECT_FAILED) { // do later::add retry result code
@@ -2319,7 +2368,7 @@ int32_t HcomChannelImp::GetV(const UBSHcomOneSideSglRequest &req, const Callback
         }
     } while (NetMonotonic::TimeSec() < timestamp);
 
-    NN_LOG_ERROR("Failed to readv " << ret);
+    NN_LOG_ERROR("Failed to " << (isWrite ? "writev " : "readv ") << ret);
     return ret;
 }
 
