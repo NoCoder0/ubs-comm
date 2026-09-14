@@ -357,7 +357,7 @@ NResult NetDriverRDMA::CreateWorkers()
     std::vector<uint16_t> workerGroups;
     std::vector<int16_t> flatWorkerCpus;
     std::vector<int16_t> workerThreadPriority;
-    std::vector<std::pair<uint8_t, uint8_t>> workerGroupCpus;
+    std::vector<std::pair<uint32_t, uint32_t>> workerGroupCpus;
 
     /* parse */
     if (!(NetFunc::NN_ParseWorkersGroups(mOptions.WorkGroups(), workerGroups)) ||

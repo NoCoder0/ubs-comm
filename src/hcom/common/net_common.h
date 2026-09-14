@@ -600,8 +600,11 @@ public:
      * 2 if workerGroupCpusStr is empty, [] vector will be the output
      * 3 each element is workerGroupCpusStr na/NA/digital-range
      */
+    /* cpu id 用 uint32_t 保存。原来用 uint8_t：CPU 号 >=256 会被静默截断（绑到错的核），
+       且 128 与 na 哨兵冲突。不绑核统一用 UINT32_MAX 作哨兵，与 inner options 的
+       cpuIdsRange={UINT32_MAX, UINT32_MAX} 保持一致。 */
     static bool NN_ParseWorkerGroupsCpus(const std::string &workerGroupCpusStr,
-        std::vector<std::pair<uint8_t, uint8_t>> &workerGroupCpus)
+        std::vector<std::pair<uint32_t, uint32_t>> &workerGroupCpus)
     {
         std::vector<std::string> extractStrings;
         NN_SplitStr(workerGroupCpusStr, ",", extractStrings);
@@ -620,7 +623,7 @@ public:
         } else if (extractStrings.size() > NN_NO128) {
             NN_LOG_ERROR("Invalid cpu id setting '" << workerGroupCpusStr <<
                 "' for worker groups, example '10-10,11-13,na' meaning that 10 for group0, 11/12/13 for group1, no "
-                "need to group2, each number must be 0-127, total group must less or equal to 128");
+                "need to group2, each number must be 0-611, total group must less or equal to 128");
             return false;
         }
 
@@ -632,7 +635,7 @@ public:
         workerGroupCpus.reserve(extractStrings.size());
         for (auto &item : extractStrings) {
             if (item == "na" || item == "NA") {
-                workerGroupCpus.emplace_back(NN_NO128, 0);
+                workerGroupCpus.emplace_back(UINT32_MAX, 0); /* 哨兵：该组不绑核 */
                 continue;
             }
 
@@ -653,7 +656,7 @@ public:
             if (badConf) {
                 NN_LOG_ERROR("Invalid cpu id setting '" << item << "' in '" << workerGroupCpusStr <<
                     "' for worker groups, example '10-10,11-13,na' meaning that 10 for group0, 11/12/13 for group1, no "
-                    "need to group2, each number must be 0-127, total group must less or equal to 128");
+                    "need to group2, each number must be 0-611, total group must less or equal to 128");
                 return false;
             }
 
@@ -675,7 +678,7 @@ public:
      * @return true if ok
      */
     static bool NN_FinalizeWorkerGroupCpus(const std::vector<uint16_t> &workerGroups,
-        const std::vector<std::pair<uint8_t, uint8_t>> &workerGroupCpus, bool allowDuplicatedCpuIds,
+        const std::vector<std::pair<uint32_t, uint32_t>> &workerGroupCpus, bool allowDuplicatedCpuIds,
         std::vector<int16_t> &flatWorkersCpus)
     {
         if (workerGroups.empty() || workerGroups.size() < workerGroupCpus.size()) {
@@ -701,8 +704,8 @@ public:
             auto &cpuPair = workerGroupCpus[i];
             auto workersInGroup = workerGroups[i];
 
-            /* no need cpu bind */
-            if (cpuPair.first == NN_NO128) {
+            /* no need cpu bind（哨兵 UINT32_MAX） */
+            if (cpuPair.first == UINT32_MAX) {
                 flatWorkerCpuIndex += workersInGroup;
                 continue;
             }

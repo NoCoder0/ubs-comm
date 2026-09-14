@@ -204,7 +204,7 @@ NResult NetDriverSockWithOOB::CreateWorkers()
     NResult result = NN_OK;
 
     std::vector<uint16_t> workerGroups;
-    std::vector<std::pair<uint8_t, uint8_t>> workerGroupCpus;
+    std::vector<std::pair<uint32_t, uint32_t>> workerGroupCpus;
     std::vector<int16_t> flatWorkerCpus;
     std::vector<int16_t> workerThreadPriority;
 
