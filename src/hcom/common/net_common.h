@@ -710,12 +710,20 @@ public:
                 continue;
             }
 
-            /* invalid size */
-            if (cpuPair.second > workersInGroup || (!allowDuplicatedCpuIds && cpuPair.second != workersInGroup)) {
+            /* 核数 < worker 数：BUSY_POLLING 不允许重复核，直接判非法。
+               核数 > worker 数：**允许** —— 表示上层给的是一个"CPU 池"，
+               由 driver 按序号切片使用（见 NetDriverRDMA::CreateWorkers 的 sliceCpuRange），
+               典型场景：一个 service 下有多个 driver（多 rail），每个 driver 只该占其中一段核。
+               此处 flat 列表只取前 workersInGroup 个核，切片由 driver 用原始 range 计算。 */
+            if (cpuPair.second < workersInGroup && !allowDuplicatedCpuIds) {
                 NN_LOG_ERROR("Invalid cpus group '" << cpuPair.first << ":" << cpuPair.second << "', the count " <<
-                    cpuPair.second << " is larger than or not equal to workers number " << workersInGroup <<
-                    " of group " << i);
+                    cpuPair.second << " is less than workers number " << workersInGroup << " of group " << i);
                 return false;
+            }
+
+            if (cpuPair.second > workersInGroup) {
+                NN_LOG_INFO("Cpus group '" << cpuPair.first << ":" << cpuPair.second << "' has more cpus than workers "
+                    << workersInGroup << " of group " << i << ", treated as a cpu pool for per-driver slicing");
             }
 
             /* set */
