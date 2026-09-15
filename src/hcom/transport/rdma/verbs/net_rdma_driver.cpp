@@ -382,12 +382,31 @@ NResult NetDriverRDMA::CreateWorkers()
     uint32_t groupIndex = 0;
     UBSHcomNetWorkerIndex workerIndex{};
     uint16_t totalWorkerIndex = 0;
+    /* 单组 + 指定 CPU 段时：按 driver 序号在段内切片，让同一 service 下的多个 driver 落到**不相交**的核上。
+       否则每个 driver 都从段首开始取，多个 driver 全挤在同一批核（双 rail + BUSY_POLLING =
+       2×worker 数 个忙轮询线程抢同一批核）。上层已把"核数"按 driver 数平分后作为每 driver 的 worker 数；
+       核数 >= worker 数 时切片生效，否则按取模回绕（退化为共享，与旧行为一致）。 */
+    uint32_t perDriverWorkers = 0;
+    for (auto item : workerGroups) {
+        perDriverWorkers += item;
+    }
+    const bool sliceCpuRange = (workerGroupCpus.size() == 1 && perDriverWorkers > 0 &&
+                                workerGroupCpus[0].first != UINT32_MAX &&
+                                workerGroupCpus[0].second >= perDriverWorkers);
     for (auto item : workerGroups) {
         NN_LOG_TRACE_INFO("Add worker " << groupIndex << ", item " << item);
         /* The left of mWorkerGroups is the index of each group's first worker in the mWorkers */
         mWorkerGroups.emplace_back(totalWorkerIndex, item);
         for (uint16_t i = 0; i < item; ++i) {
-            options.cpuId = flatWorkerCpus.at(totalWorkerIndex++);
+            if (NN_LIKELY(sliceCpuRange)) {
+                const auto &cpuRange = workerGroupCpus[0];
+                options.cpuId = static_cast<decltype(options.cpuId)>(
+                    cpuRange.first + ((static_cast<uint32_t>(mIndex) * perDriverWorkers + totalWorkerIndex) %
+                                      cpuRange.second));
+                ++totalWorkerIndex;
+            } else {
+                options.cpuId = flatWorkerCpus.at(totalWorkerIndex++);
+            }
             if (!workerThreadPriority.empty()) {
                 options.threadPriority = workerThreadPriority[groupIndex];
             }
