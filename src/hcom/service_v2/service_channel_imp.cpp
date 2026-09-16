@@ -2234,7 +2234,10 @@ SerResult HcomChannelImp::OneSideSglAsyncWithWorkerPoll(const UBSHcomOneSideSglR
     for (uint16_t rail = 0; rail < railNum; ++rail) {
         UBSHcomNetEndpoint *ep = nullptr;
         const uint16_t railSel = (railIdx == SGL_AUTO_RAIL) ? rail : ResolveRailIdx(railIdx);
+        uint64_t chooseEpBegin = 0;
+        TRACE_V2_DELAY_BEGIN(CHANNEL_ONESIDE_SGL_CHOOSE_EP, &chooseEpBegin);
         auto result = NextWorkerPollEp(ep, railSel);
+        TRACE_V2_DELAY_END(CHANNEL_ONESIDE_SGL_CHOOSE_EP, chooseEpBegin, result);
         if (NN_UNLIKELY(result != SER_OK)) {
             NN_LOG_ERROR("Get Ep failed " << result << " in rail " << railSel);
             ProcessRemainCallback(cb, railNum - rail);
@@ -2242,7 +2245,10 @@ SerResult HcomChannelImp::OneSideSglAsyncWithWorkerPoll(const UBSHcomOneSideSglR
         }
 
         TimerCtx readContext {};
+        uint64_t timerCtxBegin = 0;
+        TRACE_V2_DELAY_BEGIN(CHANNEL_ONESIDE_SGL_TIMER_CTX, &timerCtxBegin);
         result = PrepareTimerContext(cb, mOptions.oneSideTimeout, readContext);
+        TRACE_V2_DELAY_END(CHANNEL_ONESIDE_SGL_TIMER_CTX, timerCtxBegin, result);
         if (result != SER_OK) {
             NN_LOG_ERROR("PrepareTimerContext failed " << result << " in rail " << railSel);
             ProcessRemainCallback(cb, railNum - rail);
@@ -2258,6 +2264,8 @@ SerResult HcomChannelImp::OneSideSglAsyncWithWorkerPoll(const UBSHcomOneSideSglR
         const uint32_t end = begin + base + (rail < rem ? 1 : 0);
         UBSHcomNetTransSgeIov iovArray[NET_SGE_MAX_IOV];
         uint16_t iovCnt = 0;
+        uint64_t buildSglBegin = 0;
+        TRACE_V2_DELAY_BEGIN(CHANNEL_ONESIDE_SGL_BUILD_SGL, &buildSglBegin);
         for (uint32_t i = begin; i < end; ++i) {
             iovArray[iovCnt] = UBSHcomNetTransSgeIov(request.iov[i].lAddress, request.iov[i].rAddress,
                 request.iov[i].lKey.keys[devIdx], request.iov[i].rKey.keys[peerDevIdx], request.iov[i].size);
@@ -2267,11 +2275,15 @@ SerResult HcomChannelImp::OneSideSglAsyncWithWorkerPoll(const UBSHcomOneSideSglR
         }
         UBSHcomNetTransSglRequest sglReq(iovArray, iovCnt, sizeof(SerTransContext));
         SetServiceTransCtx(sglReq.upCtxData, readContext.seqNo);
+        TRACE_V2_DELAY_END(CHANNEL_ONESIDE_SGL_BUILD_SGL, buildSglBegin, 0);
+        uint64_t postWriteBegin = 0;
+        TRACE_V2_DELAY_BEGIN(CHANNEL_ONESIDE_SGL_POST_WRITE, &postWriteBegin);
         if (isWrite) {
             result = ep->PostWrite(sglReq);
         } else {
             result = ep->PostRead(sglReq);
         }
+        TRACE_V2_DELAY_END(CHANNEL_ONESIDE_SGL_POST_WRITE, postWriteBegin, result);
         if (NN_UNLIKELY(result != SER_OK)) {
             NN_LOG_ERROR("Channel async oneside sgl failed " << result << " ep id " << ep->Id() << " in rail "
                                                              << railSel);
