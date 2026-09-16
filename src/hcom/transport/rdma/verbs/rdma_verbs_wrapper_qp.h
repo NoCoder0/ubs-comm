@@ -314,25 +314,29 @@ public:
 
         struct ibv_send_wr *badWR = nullptr;
         struct ibv_send_wr wrList[NET_SGE_MAX_IOV] = {};
-        struct ibv_sge sgeStore[NET_SGE_MAX_IOV][NET_SGE_MAX_IOV] = {};
+        /* 所有 WR 的 SGE 总数不超过 iovCount(≤ NET_SGE_MAX_IOV)，用一维数组按下标切分即可；
+           原先按 groupCount × NET_SGE_MAX_IOV 开二维数组，每次调用都要清零 4KB 栈空间。 */
+        struct ibv_sge sgeStore[NET_SGE_MAX_IOV] = {};
+        uint32_t sgeOffset = 0;
         for (uint32_t g = 0; g < groupCount; ++g) {
             uint32_t begin = groupBegin[g];
             uint32_t num = groupLen[g];
-            if (NN_UNLIKELY(num == 0 || begin + num > NET_SGE_MAX_IOV)) {
+            if (NN_UNLIKELY(num == 0 || begin + num > NET_SGE_MAX_IOV || sgeOffset + num > NET_SGE_MAX_IOV)) {
                 NN_LOG_ERROR("Failed to post oneSide grouped request to qp " << mName << " as group " << g
                                                                             << " invalid, begin " << begin
                                                                             << " num " << num);
                 return RR_PARAM_INVALID;
             }
             for (uint32_t k = 0; k < num; ++k) {
-                sgeStore[g][k].addr = iov[begin + k].lAddress;
-                sgeStore[g][k].length = iov[begin + k].size;
-                sgeStore[g][k].lkey = static_cast<uint32_t>(iov[begin + k].lKey);
+                sgeStore[sgeOffset + k].addr = iov[begin + k].lAddress;
+                sgeStore[sgeOffset + k].length = iov[begin + k].size;
+                sgeStore[sgeOffset + k].lkey = static_cast<uint32_t>(iov[begin + k].lKey);
             }
             auto &wr = wrList[g];
             wr.wr_id = context[g];
-            wr.sg_list = &sgeStore[g][0];
+            wr.sg_list = &sgeStore[sgeOffset];
             wr.num_sge = static_cast<int>(num);
+            sgeOffset += num;
             wr.send_flags = IBV_SEND_SIGNALED;
             wr.opcode = isRead ? IBV_WR_RDMA_READ : IBV_WR_RDMA_WRITE;
             wr.imm_data = 0;

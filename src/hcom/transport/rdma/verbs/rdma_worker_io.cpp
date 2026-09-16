@@ -450,9 +450,12 @@ RResult RDMAWorker::PostOneSideSgl(RDMAQp *qp, const RDMASendSglRWRequest &req, 
         return RR_PARAM_INVALID;
     }
 
+    uint64_t prepareBegin = 0;
+    TRACE_V2_DELAY_BEGIN(RDMA_WORKER_SGL_PREPARE, &prepareBegin);
     auto sglCtx = mSglCtxInfoPool.Get();
     if (NN_UNLIKELY(sglCtx == nullptr)) {
         NN_LOG_ERROR("Failed to oneSide operation with RDMAWorker " << DetailName() << " as no ctx left");
+        TRACE_V2_DELAY_END(RDMA_WORKER_SGL_PREPARE, prepareBegin, RR_PARAM_INVALID);
         return RR_PARAM_INVALID;
     }
 
@@ -474,7 +477,12 @@ RResult RDMAWorker::PostOneSideSgl(RDMAQp *qp, const RDMASendSglRWRequest &req, 
         }
     }
     sglCtx->refCount = 0;
+    TRACE_V2_DELAY_END(RDMA_WORKER_SGL_PREPARE, prepareBegin, 0);
+    TRACE_IOSIZE_BEGIN(RDMA_WORKER_SGL_IOV_COUNT);
+    TRACE_IOSIZE_END(RDMA_WORKER_SGL_IOV_COUNT, req.iovCount, 0);
 
+    uint64_t groupBeginTime = 0;
+    TRACE_V2_DELAY_BEGIN(RDMA_WORKER_SGL_GROUP, &groupBeginTime);
     /* 分组：同 rkey 且远端地址首尾连续的 iov 合成一个 WR(多 SGE)，减少 WR/完成数。 */
     uint32_t groupBegin[NET_SGE_MAX_IOV] = {};
     uint32_t groupLen[NET_SGE_MAX_IOV] = {};
@@ -492,18 +500,25 @@ RResult RDMAWorker::PostOneSideSgl(RDMAQp *qp, const RDMASendSglRWRequest &req, 
         groupLen[groupCount] = i - begin;
         ++groupCount;
     }
+    /* 分组后实际要 post 的 WR 数：与 iovCount 相等说明没能合并（远端不连续/跨 rkey） */
+    TRACE_IOSIZE_BEGIN(RDMA_WORKER_SGL_WR_COUNT);
+    TRACE_IOSIZE_END(RDMA_WORKER_SGL_WR_COUNT, groupCount, 0);
 
     RDMASgeCtxInfo sgeInfo(sglCtx);
     uint64_t ctxArr[NET_SGE_MAX_IOV] = {};
     RResult result =
         CreateOneSideCtx(sgeInfo, req.iov, req.iovCount, groupCount, groupBegin, groupLen, ctxArr, isRead);
+    TRACE_V2_DELAY_END(RDMA_WORKER_SGL_GROUP, groupBeginTime, result);
     if (result != RR_OK) {
         NN_LOG_ERROR("Failed to create one side ctx.");
         mSglCtxInfoPool.Return(sglCtx);
         return result;
     }
 
+    uint64_t postSendBegin = 0;
+    TRACE_V2_DELAY_BEGIN(RDMA_WORKER_SGL_POST_SEND, &postSendBegin);
     result = qp->PostOneSideSglGrouped(req.iov, groupCount, groupBegin, groupLen, ctxArr, isRead);
+    TRACE_V2_DELAY_END(RDMA_WORKER_SGL_POST_SEND, postSendBegin, result);
     if (NN_UNLIKELY(result != RR_OK)) {
         for (uint32_t i = 0; i < groupCount; ++i) {
             qp->ReturnOneSideWr();
