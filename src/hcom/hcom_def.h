@@ -24,7 +24,10 @@ namespace hcom {
 
 constexpr const uint32_t NET_SGE_MAX_SIZE = 524288000;
 constexpr const uint32_t NET_STR_ERROR_BUF_SIZE = 128;
-constexpr const uint32_t NET_SGE_MAX_IOV = 30; /* 硬件 max_sge 上限（QP 的 max_send_sge 取 min(设备 max_sge, 本值)） */
+/* 单次 SGL 请求的 iov 上限。注意：QP 的 max_send_sge/max_recv_sge 都取自 min(设备 max_sge, 本值)，
+   实测本环境把它设到 30 会让 ibv_create_qp 返回 EINVAL（设备属性 attr.max_sge=30 只是单边上限），
+   暂回退 16；确切上限见 tmp/rdma_qp_sge_probe.cpp 的探测结果。 */
+constexpr const uint32_t NET_SGE_MAX_IOV = 16;
 
 // enum num should less than 128
 enum NET_FLAGS {
