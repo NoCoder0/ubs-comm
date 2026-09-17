@@ -340,9 +340,17 @@ void RDMAWorker::DoWithBusyPolling()
         try {
             pollCount = mProgressBatchSize;
             BUSY_POLLING()
-            TRACE_DELAY_BEGIN(RDMA_WORKER_EVENT_POLLING);
+            /* 只在取到完成项时才打点：忙轮询每空转一圈都记一次会让该点涨到千万条（实测 3000 万条 /
+               1.13s 累计 CPU），两条 clock_gettime 的累加会明显拖慢 worker 线程、污染测量。 */
+            const bool hasCompletion = (pollCount > 0);
+            uint64_t pollingBegin = 0;
+            if (hasCompletion) {
+                TRACE_V2_DELAY_BEGIN(RDMA_WORKER_EVENT_POLLING, &pollingBegin);
+            }
             PROCESS_POLLING_RESULT(pollCount, contextInfo, lastBrokenQp);
-            TRACE_DELAY_END(RDMA_WORKER_EVENT_POLLING, 0);
+            if (hasCompletion) {
+                TRACE_V2_DELAY_END(RDMA_WORKER_EVENT_POLLING, pollingBegin, 0);
+            }
         } catch (std::runtime_error &ex) {
             NN_LOG_WARN("Verbs Got runtime incorrect signal in RDMAWorker::RunInThread '" << ex.what() <<
                 "', ignore and continue");
@@ -376,9 +384,16 @@ void RDMAWorker::DoWithCQEventPolling()
             pollTimeOut = mOptions.eventPollingTimeout;
             pollCount = mProgressBatchSize;
             CQ_EVENT_POLLING()
-            TRACE_DELAY_BEGIN(RDMA_WORKER_EVENT_POLLING);
+            /* 同 DoWithBusyPolling：只在取到完成项时打点，避免空轮询把条数刷到千万级 */
+            const bool hasCompletion = (pollCount > 0);
+            uint64_t pollingBegin = 0;
+            if (hasCompletion) {
+                TRACE_V2_DELAY_BEGIN(RDMA_WORKER_EVENT_POLLING, &pollingBegin);
+            }
             PROCESS_POLLING_RESULT(pollCount, contextInfo, lastBrokenQp);
-            TRACE_DELAY_END(RDMA_WORKER_EVENT_POLLING, 0);
+            if (hasCompletion) {
+                TRACE_V2_DELAY_END(RDMA_WORKER_EVENT_POLLING, pollingBegin, 0);
+            }
         } catch (std::runtime_error &ex) {
             NN_LOG_WARN("Got runtime incorrect signal in RDMAWorker::RunInThread '" << ex.what() <<
                 "', ignore and continue");
