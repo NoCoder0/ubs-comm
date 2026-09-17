@@ -100,6 +100,12 @@ int VerbsAPI::LoadVerbsAPI()
     DLSYM(IBV_PORT_STATE_STR, VerbsAPI::hcomInnerPortStateStr, "ibv_port_state_str");
 
     NN_LOG_INFO("Success to load ibverbs");
+    /* 打印实际解析到的 libibverbs 路径：dlopen("libibverbs.so") 会受 LD_LIBRARY_PATH 影响，
+       排查"独立探针能建 QP、库内建不了"这类差异时这是第一个要看的量 */
+    Dl_info dlInfo {};
+    if (dladdr(reinterpret_cast<void *>(VerbsAPI::hcomInnerIbvCreateQP), &dlInfo) != 0 && dlInfo.dli_fname != nullptr) {
+        NN_LOG_WARN("ibverbs resolved: " << dlInfo.dli_fname);
+    }
     gLoaded = true;
 
     return 0;
