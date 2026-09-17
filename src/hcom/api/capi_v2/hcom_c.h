@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-#define C_NET_SGE_MAX_IOV 16
+#define C_NET_SGE_MAX_IOV 30 /* 单次 SGL 请求的 iov 数上限，需与 MF 的 HCOM_IOV_BATCH_SIZE 一致 */
 #define MAX_IP_LENGTH 16
 #define NET_C_FLAGS_BIT(i) (1UL << (i))
 

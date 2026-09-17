@@ -123,7 +123,7 @@ private:
     struct ibv_port_attr mPortAttr {};
     uint8_t mPortNumber = 1;
     uint16_t mDevIndex = 0;
-    int mMaxSge = NET_SGE_MAX_IOV;
+    int mMaxSge = NET_WR_MAX_SGE;
     RDMAGId mBestGid {};
     bool mUseDevX = false;
 
