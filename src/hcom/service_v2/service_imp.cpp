@@ -549,7 +549,7 @@ SerResult HcomServiceImp::CreatePeriodicMgr()
 SerResult HcomServiceImp::CreateCtxMemPool()
 {
     NetMemPoolFixedOptions options = {};
-    options.superBlkSizeMB = NN_NO1;
+    options.superBlkSizeMB = NN_NO64;
     options.minBlkSize = NN_NO64;
     if (mOptions.enableRndv) {
         options.minBlkSize = NN_NO64 * NN_NO4;
