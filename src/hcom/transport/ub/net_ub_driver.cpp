@@ -261,7 +261,8 @@ NResult NetDriverUB::CreateOpCtxMemPool()
 NResult NetDriverUB::CreateSglCtxMemPool()
 {
     NetMemPoolFixedOptions options = {};
-    options.superBlkSizeMB = NN_NO1;
+    // Match the enlarged SGL context and the pool's 64 * 16 block minimum.
+    options.superBlkSizeMB = NN_NO4;
     options.minBlkSize = NN_NextPower2(sizeof(UBSglContextInfo));
     options.tcExpandBlkCnt = NN_NO64;
     mSglCtxMemPool = new (std::nothrow) NetMemPoolFixed(mName, options);

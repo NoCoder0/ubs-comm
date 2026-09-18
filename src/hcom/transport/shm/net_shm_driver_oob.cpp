@@ -217,8 +217,8 @@ NResult NetDriverShmWithOOB::CreateWorkerResource()
     }
 
     options = {};
-    options.superBlkSizeMB = NN_NO1;
-    options.minBlkSize = NN_NO512; // the sgl context is 448, not power of 2, set to the closest num 512
+    options.superBlkSizeMB = NN_NO4;
+    options.minBlkSize = NN_NextPower2(sizeof(ShmSglOpContextInfo));
     options.tcExpandBlkCnt = NN_NO64;
     mSglCompMemPool = new (std::nothrow) NetMemPoolFixed(mName, options);
     if (mSglCompMemPool.Get() == nullptr) {

@@ -315,8 +315,8 @@ NResult NetDriverSockWithOOB::CreateOpCtxMemPool()
 NResult NetDriverSockWithOOB::CreateSglCtxMemPool()
 {
     NetMemPoolFixedOptions options = {};
-    options.superBlkSizeMB = NN_NO1;
-    options.minBlkSize = NN_NO512; // the sgl context is 468, not power of 2, set to the closest num 512
+    options.superBlkSizeMB = NN_NO4;
+    options.minBlkSize = NN_NextPower2(sizeof(SockSglContextInfo));
     options.tcExpandBlkCnt = NN_NO64;
     mSglCtxMemPool = new (std::nothrow) NetMemPoolFixed(mName, options);
     if (mSglCtxMemPool.Get() == nullptr) {
