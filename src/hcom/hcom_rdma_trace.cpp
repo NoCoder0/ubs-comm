@@ -1,7 +1,17 @@
 // SPDX-License-Identifier: MulanPSL-2.0
 #include "hcom_rdma_trace.h"
 #include <algorithm>
+#include <cstdio>
 #include <time.h>
+
+#ifndef HCOM_TRACE_BUILD_ID
+#define HCOM_TRACE_BUILD_ID "standalone-unverified"
+#endif
+
+extern "C" const char *UBSHcomRdmaTraceBuildIdentityV1() noexcept
+{
+    return HCOM_TRACE_BUILD_ID;
+}
 
 namespace ock {
 namespace hcom {
@@ -12,9 +22,17 @@ struct ThreadTrace {
     int32_t rail = -1, chunk = -1;
     uint64_t epoch = 0, sequence = 0, previousPollEnd = 0;
     uint64_t emptyPolls = 0, maxGap = 0, maxCall = 0;
+    uint32_t callBins[8]{}, gapBins[8]{};
     UBSHcomRdmaTraceEvent batch{}, completion{};
 };
 thread_local ThreadTrace trace;
+
+void CountTime(uint32_t (&bins)[8], uint64_t ns) noexcept
+{
+    uint32_t bucket = 0;
+    while (bucket < 7 && ns > (125ULL << bucket)) ++bucket;
+    ++bins[bucket];
+}
 
 void Record(const UBSHcomRdmaTraceEvent &event) noexcept
 {
@@ -49,13 +67,16 @@ UBSHcomRdmaTraceOperationScope::~UBSHcomRdmaTraceOperationScope()
 }
 
 void UBSHcomRdmaTracePost(uint64_t epoch, uint64_t begin, uint64_t end, uint32_t qp,
-    uint64_t wr, uint32_t opcode, uint32_t sges, uint64_t bytes, int status) noexcept
+    uint64_t wr, uint32_t opcode, uint32_t sges, uint64_t bytes, int status,
+    uint64_t localAddress, uint64_t remoteAddress, uint32_t sendFlags, int callStatus) noexcept
 {
     UBSHcomRdmaTraceEvent event{};
     event.epoch = epoch; event.generation = trace.generation;
     event.rail = trace.rail; event.chunk = trace.chunk;
     event.qpNum = qp; event.wrId = wr; event.opcode = opcode;
     event.sgeCount = sges; event.bytes = bytes; event.status = status;
+    event.sendFlags = sendFlags; event.postCallStatus = callStatus;
+    event.localAddress = localAddress; event.remoteAddress = remoteAddress;
     event.kind = UBSHcomRdmaTraceKind::POST_BEGIN; event.timestampNs = begin;
     Record(event);
     event.kind = UBSHcomRdmaTraceKind::POST_END; event.timestampNs = end;
@@ -68,8 +89,12 @@ void UBSHcomRdmaTracePoll(uint64_t epoch, uint64_t begin, uint64_t end,
     if (trace.epoch != epoch) {
         trace.epoch = epoch; trace.previousPollEnd = 0;
         trace.emptyPolls = trace.maxGap = trace.maxCall = 0;
+        std::fill_n(trace.callBins, 8, 0);
+        std::fill_n(trace.gapBins, 8, 0);
     }
     const uint64_t previous = trace.previousPollEnd;
+    CountTime(trace.callBins, end >= begin ? end - begin : 0);
+    if (previous != 0 && begin >= previous) CountTime(trace.gapBins, begin - previous);
     if (previous != 0 && begin >= previous) trace.maxGap = std::max(trace.maxGap, begin - previous);
     if (end >= begin) trace.maxCall = std::max(trace.maxCall, end - begin);
     trace.previousPollEnd = end;
@@ -83,9 +108,13 @@ void UBSHcomRdmaTracePoll(uint64_t epoch, uint64_t begin, uint64_t end,
     event.status = count < 0 ? count : 0;
     event.emptyPolls = trace.emptyPolls; event.maxPollGapNs = trace.maxGap;
     event.maxPollCallNs = trace.maxCall;
+    std::copy_n(trace.callBins, 8, event.pollCallBins);
+    std::copy_n(trace.gapBins, 8, event.pollGapBins);
     trace.batch = event;
     Record(event);
     trace.emptyPolls = trace.maxGap = trace.maxCall = 0;
+    std::fill_n(trace.callBins, 8, 0);
+    std::fill_n(trace.gapBins, 8, 0);
 }
 
 void UBSHcomRdmaTraceCqe(uint64_t wr, uint32_t qp, uint32_t opcode, int status) noexcept
@@ -129,3 +158,16 @@ void UBSHcomRdmaTraceMark(UBSHcomRdmaTraceKind kind, uint64_t generation,
 }
 } // namespace hcom
 } // namespace ock
+
+extern "C" int UBSHcomRdmaTraceConfigureV1(
+    const ock::hcom::UBSHcomRdmaTraceHooks *hooks, uint32_t eventSize) noexcept
+{
+    if (eventSize != sizeof(ock::hcom::UBSHcomRdmaTraceEvent) ||
+        (hooks != nullptr && (hooks->epoch == nullptr || hooks->record == nullptr))) {
+        fprintf(stderr, "ERROR: incompatible RDMA trace hooks, eventSize=%u expected=%zu\n",
+            eventSize, sizeof(ock::hcom::UBSHcomRdmaTraceEvent));
+        return -1;
+    }
+    ock::hcom::UBSHcomRdmaTraceConfigure(hooks);
+    return 0;
+}

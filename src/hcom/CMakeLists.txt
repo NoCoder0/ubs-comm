@@ -223,6 +223,13 @@ endif ()
 if (NOT BUILD_WITH_MULTICAST)
     list(REMOVE_ITEM HCOM ${HCOM_MULTICAST_SRCS})
 endif ()
+# Both linkage forms carry the same configure-time source/configuration identity.
+execute_process(COMMAND git diff HEAD --binary
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" OUTPUT_VARIABLE HCOM_TRACE_DIFF)
+string(SHA256 HCOM_TRACE_SOURCE "${HCOM_COMMIT_ID}\n${HCOM_TRACE_DIFF}")
+string(SHA256 HCOM_TRACE_CONFIG
+    "${CMAKE_CXX_COMPILER_ID};${CMAKE_CXX_COMPILER_VERSION};${CMAKE_CXX_FLAGS};${CMAKE_BUILD_TYPE};${CPU_TYPE};${BUILD_WITH_RDMA};${BUILD_WITH_UB};${BUILD_WITH_SHM};${BUILD_WITH_SOCK};${BUILD_WITH_SERVICE};${BUILD_WITH_HTRACER};${BUILD_WITH_HW_CRC};${ENABLE_ARM_KP};${BUILD_OPEN_ABI}")
+add_definitions(-DHCOM_TRACE_BUILD_ID="${HCOM_COMMIT_ID}:${HCOM_TRACE_SOURCE}:${HCOM_TRACE_CONFIG}")
 add_library(hcom_static_obj STATIC ${HCOM})
 target_link_libraries(hcom_static_obj
         -Wl,--start-group

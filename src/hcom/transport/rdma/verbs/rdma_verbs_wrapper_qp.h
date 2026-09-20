@@ -151,6 +151,29 @@ public:
         return RR_OK;
     }
 
+    // Metadata is stack-owned: completion dispatch may already have freed wr_id.
+    // A failed linked post can accept a prefix; retain both WR and call status.
+    inline int TracePostSend(ibv_send_wr *first, ibv_send_wr **bad)
+    {
+        const uint64_t epoch = UBSHcomRdmaTraceEpoch();
+        if (epoch == 0) return ibv_post_send(mQP, first, bad);
+        const uint64_t begin = UBSHcomRdmaTraceNow();
+        const int result = ibv_post_send(mQP, first, bad);
+        const uint64_t end = UBSHcomRdmaTraceNow();
+        bool rejected = false;
+        for (auto *wr = first; wr != nullptr; wr = wr->next) {
+            rejected = rejected || (result != 0 && (*bad == nullptr || wr == *bad));
+            uint64_t bytes = 0;
+            for (int k = 0; k < wr->num_sge; ++k) bytes += wr->sg_list[k].length;
+            const bool rdma = wr->opcode == IBV_WR_RDMA_WRITE || wr->opcode == IBV_WR_RDMA_READ;
+            UBSHcomRdmaTracePost(epoch, begin, end, mQP->qp_num, wr->wr_id, wr->opcode,
+                wr->num_sge, bytes, rejected ? result : 0,
+                wr->num_sge ? wr->sg_list[0].addr : 0, rdma ? wr->wr.rdma.remote_addr : 0,
+                wr->send_flags, result);
+        }
+        return result;
+    }
+
     inline RResult PostSend(uintptr_t bufAddr, uint32_t bufSize, uint32_t localKey, uint64_t context,
         uint32_t immData = 0)
     {
@@ -160,7 +183,7 @@ public:
             return RR_QP_NOT_INITIALIZED;
         }
 
-        struct ibv_send_wr *badWR;
+        struct ibv_send_wr *badWR = nullptr;
         struct ibv_sge list {
             bufAddr, bufSize, localKey
         };
@@ -178,7 +201,7 @@ public:
          */
         wr.imm_data = immData;
 
-        auto result = ibv_post_send(mQP, &wr, &badWR);
+        auto result = TracePostSend(&wr, &badWR);
         if (NN_UNLIKELY(result != 0)) {
             NN_LOG_ERROR("Failed to post send request to qp " << mName << ", result " << result);
             return RR_QP_POST_SEND_FAILED;
@@ -194,7 +217,7 @@ public:
             return RR_QP_NOT_INITIALIZED;
         }
 
-        struct ibv_send_wr *badWR;
+        struct ibv_send_wr *badWR = nullptr;
         struct ibv_sge list[NET_SGE_MAX_IOV] = {};
         for (uint32_t i = 0; i < iovCount; i++) {
             list[i].addr = iov[i].address;
@@ -215,7 +238,7 @@ public:
          */
         wr.imm_data = immData;
 
-        auto result = ibv_post_send(mQP, &wr, &badWR);
+        auto result = TracePostSend(&wr, &badWR);
         if (NN_UNLIKELY(result != 0)) {
             NN_LOG_ERROR("Failed to post send request to qp " << mName << ", result " << result);
             return RR_QP_POST_SEND_FAILED;
@@ -230,7 +253,7 @@ public:
             return RR_QP_NOT_INITIALIZED;
         }
 
-        struct ibv_send_wr *badWR;
+        struct ibv_send_wr *badWR = nullptr;
         struct ibv_sge list[NET_SGE_MAX_IOV] = {};
         for (uint32_t i = 0; i < iovCount; i++) {
             list[i].addr = iov[i].lAddress;
@@ -251,7 +274,7 @@ public:
          */
         wr.imm_data = immData;
 
-        auto result = ibv_post_send(mQP, &wr, &badWR);
+        auto result = TracePostSend(&wr, &badWR);
         if (NN_UNLIKELY(result != 0)) {
             NN_LOG_ERROR("Failed to post send request to qp " << mName << ", result " << result);
             return RR_QP_POST_SEND_FAILED;
@@ -267,7 +290,7 @@ public:
             return RR_QP_NOT_INITIALIZED;
         }
 
-        struct ibv_send_wr *badWR;
+        struct ibv_send_wr *badWR = nullptr;
         struct ibv_send_wr wrList[NET_SGE_MAX_IOV] = {};
         struct ibv_sge list[NET_SGE_MAX_IOV] = {};
         for (uint32_t i = 0; i < iovCount; i++) {
@@ -287,7 +310,7 @@ public:
             wr.wr.rdma.rkey = static_cast<uint32_t>(iov[i].rKey);
         }
 
-        auto result = ibv_post_send(mQP, wrList, &badWR);
+        auto result = TracePostSend(wrList, &badWR);
         if (NN_UNLIKELY(result != 0)) {
             NN_LOG_ERROR("Failed to post oneSide request to qp " << mName << ", result " << result);
             return isRead ? RR_QP_POST_READ_FAILED : RR_QP_POST_WRITE_FAILED;
@@ -343,20 +366,7 @@ public:
             wr.wr.rdma.rkey = static_cast<uint32_t>(iov[begin].rKey);
         }
 
-        const uint64_t traceEpoch = UBSHcomRdmaTraceEpoch();
-        const uint64_t traceBegin = traceEpoch != 0 ? UBSHcomRdmaTraceNow() : 0;
-        auto result = ibv_post_send(mQP, wrList, &badWR);
-        if (traceEpoch != 0) {
-            const uint64_t traceEnd = UBSHcomRdmaTraceNow();
-            for (uint32_t g = 0; g < groupCount; ++g) {
-                uint64_t bytes = 0;
-                for (uint32_t k = 0; k < groupLen[g]; ++k) bytes += sgeStore[g][k].length;
-                // Only stack-owned WR metadata is read here. The completion
-                // worker may already have freed the object identified by wr_id.
-                UBSHcomRdmaTracePost(traceEpoch, traceBegin, traceEnd, mQP->qp_num,
-                    wrList[g].wr_id, wrList[g].opcode, groupLen[g], bytes, result);
-            }
-        }
+        auto result = TracePostSend(wrList, &badWR);
         if (NN_UNLIKELY(result != 0)) {
             NN_LOG_ERROR("Failed to post oneSide grouped request to qp " << mName << ", result " << result);
             return isRead ? RR_QP_POST_READ_FAILED : RR_QP_POST_WRITE_FAILED;
@@ -371,7 +381,7 @@ public:
             return RR_QP_NOT_INITIALIZED;
         }
 
-        struct ibv_send_wr *badWR;
+        struct ibv_send_wr *badWR = nullptr;
         struct ibv_sge list {
             bufAddr, bufSize, localKey
         };
@@ -386,7 +396,7 @@ public:
         wr.wr.rdma.remote_addr = remoteBufAddr;
         wr.wr.rdma.rkey = remoteKey;
 
-        auto result = ibv_post_send(mQP, &wr, &badWR);
+        auto result = TracePostSend(&wr, &badWR);
         if (NN_UNLIKELY(result != 0)) {
             NN_LOG_ERROR("Failed to post read request to qp " << mName << ", result " << result);
             return RR_QP_POST_READ_FAILED;
@@ -402,7 +412,7 @@ public:
             return RR_QP_NOT_INITIALIZED;
         }
 
-        struct ibv_send_wr *badWR;
+        struct ibv_send_wr *badWR = nullptr;
         struct ibv_sge list {
             bufAddr, bufSize, localKey
         };
@@ -417,7 +427,7 @@ public:
         wr.wr.rdma.remote_addr = remoteBufAddr;
         wr.wr.rdma.rkey = remoteKey;
 
-        auto result = ibv_post_send(mQP, &wr, &badWR);
+        auto result = TracePostSend(&wr, &badWR);
         if (NN_UNLIKELY(result != 0)) {
             NN_LOG_ERROR("Failed to post write request to qp " << mName << ", result " << result);
             return RR_QP_POST_WRITE_FAILED;

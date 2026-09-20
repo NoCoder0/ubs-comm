@@ -37,6 +37,13 @@ struct UBSHcomRdmaTraceEvent {
     uint64_t emptyPolls;
     uint64_t maxPollGapNs;
     uint64_t maxPollCallNs;
+    uint32_t sendFlags;
+    int32_t postCallStatus;
+    // Per-thread since previous nonempty poll; ns upper bounds 125,250,...,8000,inf.
+    uint32_t pollCallBins[8];
+    uint32_t pollGapBins[8];
+    uint64_t localAddress; // first SGE, POST events only
+    uint64_t remoteAddress; // POST events only
 };
 
 struct UBSHcomRdmaTraceHooks {
@@ -53,7 +60,8 @@ inline uint64_t UBSHcomRdmaTraceEpoch() noexcept
 void UBSHcomRdmaTraceConfigure(const UBSHcomRdmaTraceHooks *hooks) noexcept;
 uint64_t UBSHcomRdmaTraceNow() noexcept;
 void UBSHcomRdmaTracePost(uint64_t epoch, uint64_t begin, uint64_t end, uint32_t qp,
-    uint64_t wr, uint32_t opcode, uint32_t sges, uint64_t bytes, int status) noexcept;
+    uint64_t wr, uint32_t opcode, uint32_t sges, uint64_t bytes, int status,
+    uint64_t localAddress = 0, uint64_t remoteAddress = 0, uint32_t sendFlags = 0, int callStatus = 0) noexcept;
 void UBSHcomRdmaTracePoll(uint64_t epoch, uint64_t begin, uint64_t end,
     uint64_t cq, int count) noexcept;
 void UBSHcomRdmaTraceCqe(uint64_t wr, uint32_t qp, uint32_t opcode, int status) noexcept;
@@ -93,4 +101,9 @@ private:
 
 } // namespace hcom
 } // namespace ock
+// Versioned unmangled entry for consumers that load libhcom.so dynamically.
+// Install before workers start; uninstall only after every worker has joined.
+extern "C" __attribute__((visibility("default"))) int UBSHcomRdmaTraceConfigureV1(
+    const ock::hcom::UBSHcomRdmaTraceHooks *hooks, uint32_t eventSize) noexcept;
+extern "C" __attribute__((visibility("default"))) const char *UBSHcomRdmaTraceBuildIdentityV1() noexcept;
 #endif

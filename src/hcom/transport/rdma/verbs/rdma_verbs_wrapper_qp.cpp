@@ -11,6 +11,8 @@
  */
 #ifdef RDMA_BUILD_ENABLED
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <ifaddrs.h>
@@ -61,6 +63,17 @@ RResult RDMAQp::CreateIbvQp()
         return RR_QP_CREATE_FAILED;
     }
 
+    // Opt-in setup metadata, outside measured rounds. cap is provider-returned.
+    const char *identity = std::getenv("HCOM_CAPTURE_IDENTITY");
+    if (identity != nullptr && identity[0] == '1') {
+        std::printf("{\"record_type\":\"hcom_qp_identity\",\"device\":\"%s\",\"qp_num\":%u,\"port\":%u,"
+            "\"max_send_wr\":%u,\"max_recv_wr\":%u,\"max_send_sge\":%u,"
+            "\"max_recv_sge\":%u,\"inline_bytes\":%u,\"send_cq_depth\":%d,\"recv_cq_depth\":%d}\n",
+            tmpQP->context->device->name, tmpQP->qp_num,
+            mRDMAContext->mPortNumber, initAttr.cap.max_send_wr, initAttr.cap.max_recv_wr,
+            initAttr.cap.max_send_sge, initAttr.cap.max_recv_sge, initAttr.cap.max_inline_data,
+            initAttr.send_cq->cqe, initAttr.recv_cq->cqe);
+    }
     mQP = tmpQP;
     NN_LOG_TRACE_INFO("RDMAQp::Initialized");
     return RR_OK;
