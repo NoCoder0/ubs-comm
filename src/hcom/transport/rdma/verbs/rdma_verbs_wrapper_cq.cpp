@@ -18,6 +18,7 @@
 #include <sys/poll.h>
 
 #include "net_monotonic.h"
+#include "hcom_rdma_trace.h"
 #include "rdma_verbs_wrapper_cq.h"
 
 namespace ock {
@@ -134,7 +135,16 @@ RResult RDMACq::ProgressV(struct ibv_wc *wc, int &countInOut)
     uint16_t times = 0;
 
     while (true) {
+        const uint64_t traceEpoch = UBSHcomRdmaTraceEpoch();
+        const uint64_t traceBegin = traceEpoch != 0 ? UBSHcomRdmaTraceNow() : 0;
         auto n = ibv_poll_cq(mCompletionQueue, countInOut, wc);
+        if (traceEpoch != 0) {
+            const uint64_t traceEnd = UBSHcomRdmaTraceNow();
+            UBSHcomRdmaTracePoll(traceEpoch, traceBegin, traceEnd,
+                reinterpret_cast<uintptr_t>(mCompletionQueue), n);
+            for (int i = 0; i < n; ++i)
+                UBSHcomRdmaTraceCqe(wc[i].wr_id, wc[i].qp_num, wc[i].opcode, wc[i].status);
+        }
         if (NN_UNLIKELY(n < 0)) {
             NN_LOG_ERROR("Poll cq failed in RDMACq " << mName << ", errno " << errno);
             return RR_CQ_POLLING_FAILED;

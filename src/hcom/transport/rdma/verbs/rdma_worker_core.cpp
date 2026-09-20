@@ -14,6 +14,7 @@
 #include <utility>
 
 #include "hcom_utils.h"
+#include "hcom_rdma_trace.h"
 #include "net_common.h"
 #include "rdma_worker.h"
 #include "net_rdma_async_endpoint.h"
@@ -254,6 +255,7 @@ RResult RDMAWorker::Stop()
 #define PROCESS_POLLING_RESULT(pollCount, contextInfo, lastBrokenQp)                                                   \
     do {                                                                                                               \
         for (int i = 0; i < (pollCount); i++) {                                                                        \
+            UBSHcomRdmaTraceDispatchScope traceDispatch(wc[i].wr_id, wc[i].qp_num, wc[i].opcode, wc[i].status);          \
             (contextInfo) = reinterpret_cast<RDMAOpContextInfo *>(wc[i].wr_id);                                        \
             if ((contextInfo)->qpNum != wc[i].qp_num ||                                                                \
                 (contextInfo)->opResultType == RDMAOpContextInfo::INVALID_MAGIC) {                                     \

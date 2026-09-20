@@ -18,6 +18,7 @@
 #include <string>
 
 #include "hcom_env.h"
+#include "hcom_rdma_trace.h"
 #include "rdma_mr_fixed_buf.h"
 #include "rdma_verbs_wrapper_cq.h"
 
@@ -342,7 +343,20 @@ public:
             wr.wr.rdma.rkey = static_cast<uint32_t>(iov[begin].rKey);
         }
 
+        const uint64_t traceEpoch = UBSHcomRdmaTraceEpoch();
+        const uint64_t traceBegin = traceEpoch != 0 ? UBSHcomRdmaTraceNow() : 0;
         auto result = ibv_post_send(mQP, wrList, &badWR);
+        if (traceEpoch != 0) {
+            const uint64_t traceEnd = UBSHcomRdmaTraceNow();
+            for (uint32_t g = 0; g < groupCount; ++g) {
+                uint64_t bytes = 0;
+                for (uint32_t k = 0; k < groupLen[g]; ++k) bytes += sgeStore[g][k].length;
+                // Only stack-owned WR metadata is read here. The completion
+                // worker may already have freed the object identified by wr_id.
+                UBSHcomRdmaTracePost(traceEpoch, traceBegin, traceEnd, mQP->qp_num,
+                    wrList[g].wr_id, wrList[g].opcode, groupLen[g], bytes, result);
+            }
+        }
         if (NN_UNLIKELY(result != 0)) {
             NN_LOG_ERROR("Failed to post oneSide grouped request to qp " << mName << ", result " << result);
             return isRead ? RR_QP_POST_READ_FAILED : RR_QP_POST_WRITE_FAILED;
