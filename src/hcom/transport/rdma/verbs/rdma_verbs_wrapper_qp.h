@@ -18,6 +18,7 @@
 #include <string>
 
 #include "hcom_env.h"
+#include "hcom_rdma_trace.h"
 #include "rdma_mr_fixed_buf.h"
 #include "rdma_verbs_wrapper_cq.h"
 
@@ -286,7 +287,21 @@ public:
             wr.wr.rdma.rkey = static_cast<uint32_t>(iov[i].rKey);
         }
 
+        const uint64_t traceEpoch = UBSHcomRdmaTraceEpoch();
+        const uint64_t traceBegin = traceEpoch != 0 ? UBSHcomRdmaTraceNow() : 0;
         auto result = ibv_post_send(mQP, wrList, &badWR);
+        if (traceEpoch != 0) {
+            const uint64_t traceEnd = UBSHcomRdmaTraceNow();
+            for (uint32_t g = 0; g < iovCount; ++g) {
+                const auto &posted = wrList[g];
+                uint64_t bytes = 0;
+                for (int k = 0; k < posted.num_sge; ++k) bytes += posted.sg_list[k].length;
+                // Contexts may already be freed; read stack-owned WR metadata only.
+                UBSHcomRdmaTracePost(traceEpoch, traceBegin, traceEnd, mQP->qp_num,
+                    posted.wr_id, posted.opcode, posted.num_sge, bytes, result,
+                    posted.sg_list[0].addr, posted.wr.rdma.remote_addr);
+            }
+        }
         if (NN_UNLIKELY(result != 0)) {
             NN_LOG_ERROR("Failed to post oneSide request to qp " << mName << ", result " << result);
             return isRead ? RR_QP_POST_READ_FAILED : RR_QP_POST_WRITE_FAILED;
@@ -346,7 +361,21 @@ public:
             wr.wr.rdma.rkey = static_cast<uint32_t>(iov[begin].rKey);
         }
 
+        const uint64_t traceEpoch = UBSHcomRdmaTraceEpoch();
+        const uint64_t traceBegin = traceEpoch != 0 ? UBSHcomRdmaTraceNow() : 0;
         auto result = ibv_post_send(mQP, wrList, &badWR);
+        if (traceEpoch != 0) {
+            const uint64_t traceEnd = UBSHcomRdmaTraceNow();
+            for (uint32_t g = 0; g < groupCount; ++g) {
+                const auto &posted = wrList[g];
+                uint64_t bytes = 0;
+                for (int k = 0; k < posted.num_sge; ++k) bytes += posted.sg_list[k].length;
+                // Contexts may already be freed; read stack-owned WR metadata only.
+                UBSHcomRdmaTracePost(traceEpoch, traceBegin, traceEnd, mQP->qp_num,
+                    posted.wr_id, posted.opcode, posted.num_sge, bytes, result,
+                    posted.sg_list[0].addr, posted.wr.rdma.remote_addr);
+            }
+        }
         if (NN_UNLIKELY(result != 0)) {
             NN_LOG_ERROR("Failed to post oneSide grouped request to qp " << mName << ", result " << result);
             return isRead ? RR_QP_POST_READ_FAILED : RR_QP_POST_WRITE_FAILED;
@@ -407,7 +436,13 @@ public:
         wr.wr.rdma.remote_addr = remoteBufAddr;
         wr.wr.rdma.rkey = remoteKey;
 
+        const uint64_t traceEpoch = UBSHcomRdmaTraceEpoch();
+        const uint64_t traceBegin = traceEpoch != 0 ? UBSHcomRdmaTraceNow() : 0;
         auto result = ibv_post_send(mQP, &wr, &badWR);
+        if (traceEpoch != 0) {
+            UBSHcomRdmaTracePost(traceEpoch, traceBegin, UBSHcomRdmaTraceNow(), mQP->qp_num,
+                wr.wr_id, wr.opcode, 1, bufSize, result, bufAddr, remoteBufAddr);
+        }
         if (NN_UNLIKELY(result != 0)) {
             NN_LOG_ERROR("Failed to post write request to qp " << mName << ", result " << result);
             return RR_QP_POST_WRITE_FAILED;
